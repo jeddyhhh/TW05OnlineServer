@@ -1,0 +1,410 @@
+# LobbyAPI requests in SLUS_210.02
+# LobbyApiRequest = 0x00326ec0, 59 call sites
+
+Lobby_AcceptChallenge
+                 0x001c9998  verb 'mesg'  -> _AcceptChalCallback
+        send  TEXT
+        value 'accept'
+        send  PRIV
+        send  ATTR
+
+Lobby_AddPersona                       0x001cefc0  verb 'cper'  -> _PersonaAddCallback
+        send  PERS
+        send  ALTS
+        read  OPTS
+
+Lobby_ChangePassword                   0x001cf3f8  verb 'pass'  -> _ChangePasswordCallback
+        send  CHNG
+
+Lobby_CreateRoom                       0x001c3f54  verb 'room'  -> _CreateRoomCallback
+        send  NAME
+        send  DESC
+        send  PASS
+        send  MAX
+        read  NAME, COUNT
+
+Lobby_DeclineChallenge
+                0x001c9ab0  verb 'mesg'  -> -
+        send  TEXT
+        send  PRIV
+        send  ATTR
+        send  PERS=*
+
+Lobby_DeclineChallenge
+                0x001c9ab0  verb 'chal'  -> -
+        send  TEXT
+        send  PRIV
+        send  ATTR
+        send  PERS=*
+
+Lobby_DeductMyOnlineMoney              0x001c62fc  verb 'cusr'  -> _DeductMyOnlineMoneyCallback
+        send  CMD
+        send  DEDAMT
+        read  ERRCODE, MONEY
+
+Lobby_DeletePersona                    0x001cef08  verb 'dper'  -> 0x001cd9d0
+        send  PERS
+
+Lobby_EditAccountInfo                  0x001ced44  verb 'edit'  -> _EditAccountCallback
+        send  NAME
+        send  MAIL
+        send  SPAM
+        send  PASS
+        send  CHNG
+
+Lobby_GetNews                          0x001ce3b8  verb 'news'  -> _NewsCallback
+        send  NAME=%d
+
+Lobby_GetUserRanksByListIndices        0x001c6430  verb 'cusr'  -> _GetUserRanksCallback
+        send  PERS
+        send  CMD
+        value 'usrrk'
+        read  RANKS
+
+Lobby_JoinRoom                         0x001c45b4  verb 'move'  -> _JoinRoomCallback
+        send  NAME
+        send  PASS
+        read  NAME, IDENT, COUNT
+
+Lobby_LeaveRoom                        0x001c479c  verb 'move'  -> _LeaveRoomCallback
+
+Lobby_Login                            0x001ceb64  verb 'auth'  -> _AuthCallback
+        send  TOS
+        send  NAME
+        send  PASS
+        send  MID
+        send  MAC
+        send  HWFLAG
+        send  HWMASK
+        read  PERSONAS, BORN, SPAM, CPAT
+
+Lobby_PeekRoom                         0x001c46bc  verb 'peek'  -> 0x001c1f48
+        send  NAME
+        read  COUNT
+
+Lobby_Register                         0x001ce6b8  verb 'acct'  -> _RegisterCallback
+        send  NAME
+        send  PASS
+        send  MAIL
+        send  BORN
+        send  GEND
+        send  MINAGE
+        send  SPAM
+        send  ALTS
+        send  MID
+        send  MAC
+        read  OPTS, AGE
+
+Lobby_Register_ParentalConsent         0x001ce8f8  verb 'acct'  -> _RegisterCallback
+        send  NAME
+        send  PASS
+        send  MAIL
+        send  PMAIL
+        send  BORN
+        send  GEND
+        send  MINAGE
+        send  SPAM
+        send  ALTS
+        send  MID
+        send  MAC
+        read  OPTS, AGE
+
+Lobby_RetractChallenge
+                0x001c9d98  verb 'mesg'  -> -
+        send  TEXT
+        value 'revoke'
+        send  PRIV
+        send  ATTR
+        send  PERS=*
+
+Lobby_RetractChallenge
+                0x001c9d98  verb 'chal'  -> -
+        send  TEXT
+        value 'revoke'
+        send  PRIV
+        send  ATTR
+        send  PERS=*
+
+Lobby_RetrieveLogin_Email              0x001cf290  verb 'lost'  -> _RetrieveLoginCallback
+        send  MAIL
+
+Lobby_RetrieveLogin_MasterAccount      0x001cf1c8  verb 'lost'  -> _RetrieveLoginCallback
+        send  NAME
+
+Lobby_SendChallenge
+                   0x001ca548  verb 'mesg'  -> _ChalDataCallback
+        send  TEXT
+        send  PRIV
+        send  ATTR
+
+Lobby_SendChat                         0x001c41ac  verb 'mesg'  -> _SendChatCallback
+
+Lobby_SendChatToPersona                0x001c42ac  verb 'mesg'  -> _SendChatCallback
+        send  PRIV
+
+Lobby_SendTwoPlayerResults             0x001cb618  verb 'rank'  -> _SendResultsCallback
+        send  REPT
+        send  DISC
+        send  AUTH
+        send  WHEN
+        send  SKU
+        send  SLUS_21002
+        send  MD5SUM
+        send  NAME0
+        send  NAME1
+        send  GLFR0
+        send  GLFR1
+        send  CRSE0
+        send  CRSE1
+        send  RATING
+        send  WAGER
+        send  ROOM0
+        send  ROOM1
+        send  RANK0
+        send  RANK1
+        send  QUIT0
+        send  QUIT1
+        send  TYPE0
+        send  TYPE1
+        send  DONE0
+        send  DONE1
+        send  SCORE0
+        send  SCORE1
+        send  CLUB0
+        send  CLUB1
+        send  STROKES0
+        send  STROKES1
+        send  PUTTS0
+        send  PUTTS1
+        send  HOLES0
+        send  HOLES1
+        send  EAGS0
+        send  EAGS1
+        send  BIRD0
+        send  BIRD1
+        send  ACES0
+        send  ACES1
+        send  GIR0
+        send  GIR1
+        send  LPUT0
+        send  LPUT1
+        send  DRVS0
+        send  DRVS1
+        send  FRWY0
+        send  FRWY1
+        send  LDRV0
+        send  LDRV1
+        send  SHTC0
+        send  SHTC1
+        send  PARS0
+        send  PARS1
+        send  SBOG0
+        send  SBOG1
+        send  DBOG0
+        send  DBOG1
+        send  TBOG0
+        send  TBOG1
+        send  COMP0
+        send  COMP1
+        read  TITLE, MESG
+
+Lobby_SetPersona                       0x001cf0c8  verb 'pers'  -> _PersCallback
+        send  PERS
+        send  CDEV
+        read  LKEY
+
+Tourn_GetNDaysTourneyInfoFromServer    0x001d5808  verb 'cusr'  -> _TodaysTourneyCallback
+        send  CMD
+        value 'tinfo'
+        send  START
+        send  NUM
+        send  LANG
+
+Tourn_GetNDaysTourneyResultsFromServer 0x001d5a08  verb 'cusr'  -> _TodaysTourneyCallback
+        send  CMD
+        value 'tdwin'
+        send  START
+        send  NUM
+
+Tourn_GetTodaysDateFromServer          0x001d5c7c  verb 'cusr'  -> _TodaysDateCallback
+        send  CMD
+        value 'date'
+
+Tourn_GetTodaysTourneyInfoFromServer   0x001d5b50  verb 'cusr'  -> _TodaysTourneyCallback
+        send  CMD
+        value 'tinfo'
+        send  START
+        send  NUM
+
+Tourn_ReportRoundResults               0x001d5e4c  verb 'cusr'  -> _RoundResultsCallback
+        send  PERS
+        send  CMD
+        value 'trslt'
+        send  DATA
+
+_ConnCallback                          0x001cd420  verb 'sele'  -> -
+        send  ROOMS=1 GAMES=1 USERS=1 MESGS=1 MYGAME=1
+
+_GetStartPermissionFromServer          0x001d4c58  verb 'cusr'  -> _TourneyStartCallback
+        send  CMD
+        value 'tstrt'
+        read  TKEY, DATA
+
+_SendChalMessage                       0x001c97b0  verb 'chal'  -> _ChalCallback
+        send  PARAMS
+        send  PERS
+        send  HOST
+        read  MODE
+
+sub_001bc348                           0x001bc348  verb 'gcre'  -> _PostAdvertCallback
+        send  NAME
+        send  PASS
+        send  PARAMS
+        send  MINSIZE
+        send  MAXSIZE
+        send  CUSTFLAGS
+        send  SYSFLAGS
+
+sub_001bc4f0                           0x001bc4f0  verb 'gjoi'  -> _JoinGameCallback
+        send  NAME
+        send  PASS
+
+sub_001bcaf0                           0x001bcaf0  verb 'gsea'  -> 0x001bc030
+        send  START
+        send  COUNT
+        send  ASYNC
+        send  SYSFLAGS
+        send  SYSMASK
+
+sub_001bcc18                           0x001bcc18  verb 'gdel'  -> -
+        send  FORCE
+
+sub_001bcd10                           0x001bcd10  verb 'gdel'  -> _DeleteAdvertCallback
+        send  FORCE
+
+sub_001bce28                           0x001bce28  verb 'glea'  -> -
+        send  NAME
+        send  FORCE
+
+sub_001c2fe8                           0x001c2fe8  verb 'auxi'  -> -
+        send  TEXT
+
+sub_001c43fc                           0x001c43fc  verb 'rept'  -> -
+        send  PERS
+        send  PROD
+        send  TYPE
+        value 'honest'
+
+sub_001c64f8                           0x001c64f8  verb 'cusr'  -> -
+        send  PERS
+        send  CMD
+        value 'logme'
+        send  LOGTXT
+
+sub_001c6788                           0x001c6788  verb 'snap'  -> 0x001c2068
+        send  INDEX
+        send  CHAN
+        send  START
+        send  RANGE
+        read  RANGE
+
+sub_001c68d0                           0x001c68d0  verb 'snap'  -> 0x001c20d8
+        send  INDEX
+        send  CHAN
+        send  FIND
+        send  RANGE
+
+sub_001c6a28                           0x001c6a28  verb 'onln'  -> 0x001c2828
+        send  PERS
+
+sub_001c6c40                           0x001c6c40  verb 'cusr'  -> 0x001c2938
+        send  PERS
+        value 'myrnk'
+        send  CMD
+        read  RNKRS
+
+sub_001c6f3c                           0x001c6f3c  verb 'cusr'  -> -
+        send  PERS
+        send  CMD
+        value 'whomi'
+        send  CRPIN=
+
+sub_001c70b0                           0x001c70b0  verb 'user'  -> 0x001c29c8
+        send  PERS
+        read  CRPIN
+
+sub_001c784c                           0x001c784c  verb 'cusr'  -> -
+        send  PERS
+        send  CMD
+        value 'clrwg'
+
+sub_001c8720                           0x001c8720  verb 'cusr'  -> -
+        send  PERS
+        send  CMD
+        value 'prupd'
+        send  PROFLGSET
+
+sub_001c8818                           0x001c8818  verb 'cusr'  -> -
+        send  CMD
+        value 'prupd'
+        send  PROFLGCLR
+
+sub_001c8928                           0x001c8928  verb 'cusr'  -> -
+        send  CMD
+        value 'prlog'
+        send  PROTITLE
+        send  PRORESP
+
+sub_001c9bf0                           0x001c9bf0  verb 'mesg'  -> -
+        send  TEXT
+        send  PRIV
+        send  ATTR
+
+sub_001cb340                           0x001cb340  verb 'chal'  -> -
+        send  PERS=*
+
+sub_001d5d84                           0x001d5d84  verb 'cusr'  -> 0x001d4dc8
+        value 'tfrst'
+        send  CMD
+
+sub_003271f8                           0x003271f8  verb 'news'  -> 0x003267a8
+        send  TIME
+        send  REF
+        send  ADDR
+        send  PORT
+        send  SESS
+        send  MASK
+        send  DOWN
+        send  SKEY
+        send  LANG
+        send  EN
+        send  NAME=7 LANG=%s
+        send  NAME
+        send  CHAN
+        send  MORE
+        send  SLOTS
+        send  STATS
+        send  PERS
+        send  RI
+        send  RT
+        send  RM
+        send  RF
+        send  IDENT
+        send  UIL
+        send  UIR
+        send  UIG
+        send  GIP
+        send  GCR
+        send  GCM
+        send  LIDENT
+        send  LCOUNT
+        send  COUNT
+        send  FLAGS
+
+sub_0032e3c0                           0x0032e3c0  verb 'user'  -> 0x0032e2c8
+        send  PERS=%s
+        read  PERS
+
+sub_0032e5b0                           0x0032e5b0  verb 'onln'  -> 0x0032e3c0
+        send  PERS=%s
+
