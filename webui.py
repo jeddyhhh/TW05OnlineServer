@@ -2041,7 +2041,7 @@ try them &mdash; working or not &mdash; please report what happened on
         best = p['best']
         figs = [_figure(p['rounds'], 'Rounds'),
                 _figure('%d&ndash;%d&ndash;%d' % (p['won'], p['lost'], p['tied']),
-                        'Match record'),
+                        'Head to head'),
                 _figure(p['tourney_wins'], 'Tournament wins'),
                 _figure(twtourney.money(cash(name)['balance']), 'Cash')]
         if best:
@@ -2053,6 +2053,11 @@ try them &mdash; working or not &mdash; please report what happened on
             figs.append(_figure('%d yd' % p['longest'], 'Longest drive'))
         hcp = twrecords.handicap(rs, name)
         figs.append(_figure(twrecords.fmt_handicap(hcp), 'Handicap'))
+        # MY RESUME's head-to-head lines, from the same function the lobby
+        # sends the console.
+        mine = twrecords.h2h_summary(DB, name)
+        figs.append(_figure(mine['rep'], 'Rep'))
+        figs.append(_figure(mine['dnf'], 'Did not finish'))
 
         # Where they stand on each stat table, if they qualify for it.
         standing = {}
@@ -2101,6 +2106,7 @@ try them &mdash; working or not &mdash; please report what happened on
                 % (html.escape(name),
                    ' <span class="tag playing">online now</span>' if online else '',
                    ' &middot; '.join(sub_bits), ''.join(figs)))
+        body += self.modes_card(mine)
         body += ('<form method="get" action="/compare" class="vs card">'
                  '<input type="hidden" name="a" value="%s"><div><label>'
                  'Compare with</label><input type="text" name="b" '
@@ -2132,6 +2138,35 @@ try them &mdash; working or not &mdash; please report what happened on
         body += ('<div class="card"><h2>Recent rounds</h2>%s</div>'
                  % _rounds_table(p['recent'], who=False))
         return self.reply(page(name, body, signed_in=bool(session)))
+
+    MODE_LABELS = (('stroke', 'Stroke play'), ('match', 'Match play'),
+                   ('mini', '3 Hole Mini-Game'))
+
+    def modes_card(self, mine):
+        """Record, rank and games quit in each head-to-head mode, as the
+        console's MY RESUME shows them (twrecords.h2h_summary)."""
+        rows = []
+        for mode, label in self.MODE_LABELS:
+            w, l, t = mine['records'][mode]
+            # Match play has no halves on MY RESUME: W-L.
+            record = ('%d&ndash;%d' % (w, l) if mode == 'match'
+                      else '%d&ndash;%d&ndash;%d' % (w, l, t))
+            rank = mine['ranks'][mode]
+            rows.append('<tr><td>%s</td><td class="num">%s</td>'
+                        '<td class="num">%s</td><td class="num">%d</td></tr>'
+                        % (label, record, rank if rank else 'N/A',
+                           mine['incomplete'][mode]))
+        return ('<div class="card"><h2>Head to head &middot; by mode</h2>'
+                '<table><thead><tr><th>Mode</th><th class="num">Record</th>'
+                '<th class="num">Rank</th><th class="num">Did not finish</th>'
+                '</tr></thead><tbody>%s</tbody></table>'
+                '<p class="foot" style="margin:.8rem 0 0">As on the '
+                'console&rsquo;s MY RESUME. Ranks go by wins, then fewest '
+                'losses; Battle games count only toward did-not-finish, as '
+                'match play. Did not finish in the last 10 games: '
+                '<strong>%d</strong>. Rep is the share of games seen through '
+                'rather than quit.</p></div>'
+                % (''.join(rows), mine['dnf_last10']))
 
     def activity_card(self):
         """The last 30 days as two bar charts: rounds and matches played, and

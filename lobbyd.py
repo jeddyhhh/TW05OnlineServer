@@ -708,6 +708,50 @@ def drop_games(persona, why):
 # tournament winnings are worked out each time; everything else is in the
 # `cash` ledger, so the balance is always the sum of its parts.
 
+def probe_settings():
+    """--probe-file, read afresh every time: `key = value` lines, `#` for
+    comments.  For mapping MY RESUME from the console without reconnecting:
+
+        fields = 92=50 4=7        stats-record fields (twstats05) to force
+        ranks  = 111 222 333      usrrk's RANKS, three numbers
+        rnkrs  = index            myrnk's 36 words, word i as 200 + i
+        R      = 77               the rank in +who
+
+    Nothing set, or no file: {}, and the real values go out."""
+    if not ARGS or not getattr(ARGS, 'probe_file', ''):
+        return {}
+    out = {}
+    try:
+        with open(ARGS.probe_file, encoding='utf-8') as f:
+            for line in f:
+                line = line.split('#', 1)[0]
+                if '=' in line:
+                    k, _, v = line.partition('=')
+                    if v.strip():
+                        out[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return out
+
+
+def _ints(text):
+    return [int(x, 0) for x in str(text).replace(',', ' ').split()]
+
+
+def reputation(persona):
+    """REP on MY RESUME -- see twrecords.h2h_summary."""
+    return twrecords.h2h_summary(DB, persona)['rep']
+
+
+RANK_MODES = twrecords.H2H_MODES                # usrrk's RANKS, in order
+
+
+def mode_ranks(persona):
+    """[stroke, match, mini] ranks for usrrk -- twrecords.h2h_summary."""
+    ranks = twrecords.h2h_summary(DB, persona)['ranks']
+    return [ranks[mode] for mode in RANK_MODES]
+
+
 def cash_balance(persona):
     return twrecords.cash(DB, persona, ARGS.start_cash)['balance']
 
@@ -1514,13 +1558,15 @@ class Handler(socketserver.BaseRequestHandler):
     # both then post UI message 0xD4 (0x00294A00), which is what makes the
     # profile screen redraw.  `R` and `P` line up with the ONLINE RANK and
     # ONLINE POINTS lines on that screen; `S` is 128 bytes and unidentified.
-    RNKRS_BYTES = 0x90
-    # RNKRS is 36 little-endian words, read by 0x00276CE0(key), which maps a
-    # key to a word with the switch at 0x00277220.  MY RESUME's EARNINGS RANK
-    # line is 0x002A0E08: key 0x1F -> word 10, drawn "%d", or "N/A" when <= 0.
-    # (Found from the ELF on 2026-09-25, after field 38 of `S` was tried and
-    # the line stayed N/A.)  The other 35 words are still unknown -- zeros.
-    RNKRS_EARNINGS_RANK = 10
+    # TW05 (2026-09-30): RNKRS is 43 little-endian words, 172 bytes --
+    # `_FindMyStats`' callback (0x001C2930) decodes 0xAC bytes into the lobby
+    # context at +0x1F0.  MY RESUME's EARNINGS RANK (0x002369EC) reads it
+    # through 0x001C6268(list 0x26), which maps the list to WORD 39
+    # (0x001C6D70) and draws "N/A" when it is <= 0.  TW04's record was 36
+    # words with earnings rank in word 10, so the fork's copy never reached
+    # word 39.  The other words are other ranking lists, still zeros.
+    RNKRS_BYTES = 0xAC
+    RNKRS_EARNINGS_RANK = 39
 
     def rank_record(self, persona):
         """RNKRS for `myrnk`: 144 bytes, with what is known filled in."""
@@ -1528,6 +1574,12 @@ class Handler(socketserver.BaseRequestHandler):
         if persona:
             words[self.RNKRS_EARNINGS_RANK] = DB.tourney_career(
                 persona, twtourney.payout)['rank']
+        probe = probe_settings().get('rnkrs')
+        if probe == 'index':                 # word i shows as 200 + i
+            words = [200 + i for i in range(len(words))]
+        elif probe:
+            for i, v in enumerate(_ints(probe)[:len(words)]):
+                words[i] = v
         return struct.pack('<%dI' % len(words), *words)
 
     def stat_record(self, persona):
@@ -1539,10 +1591,16 @@ class Handler(socketserver.BaseRequestHandler):
         if ARGS.probe_stats:
             return twstats05.probe()
         values = self.tw05_stats(persona)
-        for item in (ARGS.probe_fields or '').split(','):
+        overrides = ','.join((ARGS.probe_fields or '',
+                              probe_settings().get('fields', '')))
+        for item in overrides.replace(' ', ',').split(','):
             if '=' in item:                   # --probe-fields 92=50,4=7
                 k, _, val = item.partition('=')
-                values[int(k, 0)] = int(val, 0)
+                # A range, and `index` for each field's own number:
+                # 0-46=index, 47-93=0 (the probe file's bisecting).
+                lo, _, hi = k.partition('-')
+                for i in range(int(lo, 0), int(hi or lo, 0) + 1):
+                    values[i] = i if val == 'index' else int(val, 0)
         return twstats05.record(values)
 
     def tw05_stats(self, persona):
@@ -1550,34 +1608,31 @@ class Handler(socketserver.BaseRequestHandler):
 
         Head-to-head records count finished games by kind (twrecords.
         match_kind); Battle has no line of its own and is left out.  A DNF
-        is a game this player quit.  Tournament lines come from
+        is a game this player quit (see twstats05 for how the game adds the
+        two DNF lines up).  Tournament lines come from
         tourney_career as in TW04, except the earnings, which TW05 draws
         in whole dollars.  ONLINE EARNINGS is also the player's cash for
         wagers: for now it is their tournament earnings, since wagers are not
         handled yet."""
         f = twstats05
         v = {}
-        rec = {'match': [0, 0, 0], 'stroke': [0, 0, 0], 'mini': [0, 0, 0]}
-        quits = []
-        for m in sorted(DB.matches(persona, limit=None),
-                        key=lambda m: m['received'] or 0):
-            mine = next(p for p in m['players'] if p['name'] == persona)
-            quits.append(1 if mine['quit'] else 0)
-            if not mine['done'] or mine['quit']:
-                continue
-            kind = twrecords.match_kind(m)
-            if kind not in rec:
-                continue
-            slot = 2 if m['winner'] is None else 0 if m['winner'] == persona else 1
-            rec[kind][slot] += 1
+        # Records, incompletes and the DNF history: twrecords.h2h_summary,
+        # which the web site's player page draws too.  DID NOT FINISH is the
+        # game's sum of the three incompletes; DNF LAST 10 counts the 1-bits
+        # of a ten-game history (newest game in bit 0).
+        h = twrecords.h2h_summary(DB, persona)
+        rec = h['records']
         for kind, (w, l, t) in ((('match', (f.MATCH_W, f.MATCH_L, None)),
                                  ('stroke', (f.STROKE_W, f.STROKE_L, f.STROKE_T)),
                                  ('mini', (f.MINI_W, f.MINI_L, f.MINI_T)))):
             v[w], v[l] = rec[kind][0], rec[kind][1]
             if t is not None:
                 v[t] = rec[kind][2]
-        v[f.DNF] = sum(quits)
-        v[f.DNF_LAST10] = sum(quits[-10:])
+        v[f.MATCH_INCOMPLETE] = h['incomplete']['match']
+        v[f.STROKE_INCOMPLETE] = h['incomplete']['stroke']
+        v[f.MINI_INCOMPLETE] = h['incomplete']['mini']
+        v[f.DNF_HISTORY] = sum(q << i for i, q in
+                               enumerate(reversed(h['history'])))
         v[f.POINTS] = self.standing(persona)[1]
         career = DB.tourney_career(persona, twtourney.payout)
         v[f.EVENTS_ENTERED] = career['entered']
@@ -2201,6 +2256,25 @@ class Handler(socketserver.BaseRequestHandler):
             # and no `snap` has been answered yet, so they would go to channel 0
             # and be thrown away.  They are sent from on_snap instead.
             return
+        if ARGS.probe_file and cmd in ('myrnk', 'usrrk'):
+            # MY RESUME opening.  Re-send the player's record with the probe
+            # file's overrides, so each look at the screen shows the file as
+            # it is now -- no reconnect between tries.
+            self.push_who()
+        if cmd == 'usrrk':
+            # `_GetUserRanksCallback` (0x001C2B40) reads RANKS: 12 bytes,
+            # binary, into the lobby context at +0x1E0 -- three words, which
+            # MY RESUME draws as the STROKE PLAY, MATCH PLAY and MINI GAMES
+            # RANK lines, in that order (probed 2026-09-30).
+            who = tags.get('PERS') or self.persona or ''
+            words = mode_ranks(who)
+            if probe_settings().get('ranks'):
+                words = (_ints(probe_settings()['ranks']) + [0, 0, 0])[:3]
+            self.send('cusr', ident, {'~~': 'OK', 'CMD': cmd,
+                                      'RANKS': struct.pack('<3I', *words)})
+            log('***', '    usrrk -> RANKS stroke %d, match %d, mini %d for %s'
+                % (words[0], words[1], words[2], who or '?'))
+            return
         if cmd == 'myrnk':
             # 144 bytes of ranking record -- see rank_record.  It must be a
             # `$`-prefixed binary field: 0x002BF7F0 returns -1 for anything
@@ -2587,11 +2661,25 @@ class Handler(socketserver.BaseRequestHandler):
         if not who:
             return
         rank, _points = self.standing(who)
+        if probe_settings().get('R'):
+            rank = _ints(probe_settings()['R'])[0]
         addr, _port = peer_address(who)
-        self.send('+who', 0, {
+        tags = {
             'I': '0', 'N': who, 'P': 'good', 'A': addr or '0.0.0.0',
             'R': str(rank), 'S': self.stat_record(who).decode('latin-1'),
-        })
+            # REP on MY RESUME: the user record's `RP` (0x00329CB0 stores it
+            # at +0x210; 0x001C6210 reads it for the screen).  Probed live
+            # 2026-09-30: RP=501 drew REP 501.
+            'RP': str(reputation(who)),
+        }
+        # Probe: more tags for the record, "who = REP=501 LEVEL=502".  The
+        # parser behind +who (0x0032E010) reads PERS STAT ATTR RGB LEVEL
+        # MEDALS WTIER WINDEX RANK REP on top of the usual I N P A R S.
+        for item in probe_settings().get('who', '').split():
+            k, _, v = item.partition('=')
+            if k and v:
+                tags[k] = v
+        self.send('+who', 0, tags)
         log('***', '    +who to %s (%d-byte record)'
             % (who, len(self.stat_record(who))))
 
@@ -3395,6 +3483,10 @@ def main(argv=None):
     ap.add_argument('--probe-fields', default='',
                     help='TW05 mapping aid: override stats-record fields, '
                          'e.g. 92=50,4=7 (index=value, comma separated)')
+    ap.add_argument('--probe-file', default='',
+                    help='TW05 mapping aid: a file of MY RESUME overrides, '
+                         're-read and re-sent each time the screen opens -- '
+                         'see probe_settings.  Not for a public server')
     ap.add_argument('--probe-layout', choices=('all', 'walk', 'settings'),
                     help='TW05 mapping aid, not real data.  all: every data '
                          'byte of every event holds its own offset; walk: '

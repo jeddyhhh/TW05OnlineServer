@@ -42,7 +42,6 @@ CASH = 0x4C                              # online money, $ (32 bits)
 # index of the field behind it.  ONLINE RANK is the user record's `R`, and
 # the RANK lines and EARNINGS RANK come from the rank requests, not here.
 POINTS = 1              # ONLINE POINTS
-DNF_LAST10 = 4          # DNF LAST 10 GAMES
 MATCH_W, MATCH_L = 7, 8                        # MATCH PLAY RECORD (W-L)
 STROKE_W, STROKE_L, STROKE_T = 10, 11, 12      # STROKE PLAY RECORD (W-L-T)
 EVENTS_ENTERED, EVENTS_WON, TOP25 = 26, 27, 29  # TOURNAMENTS
@@ -52,9 +51,18 @@ HANDICAP = 65           # HANDICAP (9 bits)
 ONLINE_EARNINGS = CASH  # ONLINE EARNINGS -- the same field is the cash
 WAGERS_MADE, WAGERS_WON = 87, 88
 MONEY_EARNED, MONEY_LOST = 90, 91
-DNF = 92                # DID NOT FINISH
-# REP drew 0 under the probe: field 0, or a field too narrow to hold its own
-# index.  Not yet placed.
+# The two DNF lines are worked out by the game, not read straight off a
+# field -- which is why a field set to 92 drew 92 under the full probe and
+# 0 on its own.  Bisected with --probe-file on 2026-09-30:
+#   DID NOT FINISH   = field 15 + field 16 + field 61: the INCOMPLETE games
+#                      of match play, stroke play and the Mini-Game
+#   DNF LAST 10      = the 1-bits in field 92, a 10-bit history of the last
+#                      ten games (2 drew 1, 50 drew 3, 85 drew 4)
+MATCH_INCOMPLETE, STROKE_INCOMPLETE, MINI_INCOMPLETE = 15, 16, 61
+DNF_HISTORY = 92        # 10 bits, one per game, 1 = did not finish
+# REP drew 0 even with every field its own number, so it is not in this
+# record at all; nor is EARNINGS RANK (N/A throughout).  Both come from
+# somewhere not yet found.
 
 OFFSETS = []
 _bit = 0

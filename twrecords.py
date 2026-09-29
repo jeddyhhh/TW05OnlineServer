@@ -792,6 +792,82 @@ def cash(db, persona, start=START_CASH):
 
 
 # ---------------------------------------------------------------------------
+# TW05 head-to-head, as MY RESUME shows it.  lobbyd sends these to the
+# console and the web site draws them, both from here, so they agree.
+
+H2H_MODES = ('stroke', 'match', 'mini')     # also usrrk's RANKS order
+
+
+def h2h_table(db):
+    """{persona (lower case): {'name', 'stroke'/'match'/'mini': [W, L, T],
+    'incomplete': {mode: n}, 'quits': [0/1 per game, oldest first]}} over
+    every head-to-head game.
+
+    A result counts when the player finished and did not quit, as on
+    MY RESUME.  Battle has no record line of its own there, so it is left
+    out of the records and ranks; a Battle a player quit counts as an
+    incomplete MATCH game, because it is match play with clubs taken."""
+    table = {}
+    for m in sorted(db.matches(limit=None), key=lambda m: m['received'] or 0):
+        kind = match_kind(m)
+        for p in m['players']:
+            e = table.setdefault(p['name'].lower(), {
+                'name': p['name'], 'quits': [],
+                'incomplete': dict.fromkeys(H2H_MODES, 0)})
+            for mode in H2H_MODES:
+                e.setdefault(mode, [0, 0, 0])
+            e['quits'].append(1 if p['quit'] else 0)
+            bucket = 'match' if kind == 'battle' else kind
+            if p['quit'] and bucket in e['incomplete']:
+                e['incomplete'][bucket] += 1
+            if p['quit'] or not p['done'] or kind not in H2H_MODES:
+                continue
+            e[kind][2 if m['winner'] is None else
+                    0 if m['winner'] == p['name'] else 1] += 1
+    return table
+
+
+def h2h_summary(db, persona, table=None):
+    """One player's MY RESUME head-to-head lines:
+
+        records     {mode: [W, L, T]}
+        ranks       {mode: rank}, 1 = best by wins, then fewest losses, then
+                    most ties; equal records share a rank; 0 = not played
+                    (the console draws N/A)
+        incomplete  {mode: games quit}; dnf is their sum (DID NOT FINISH)
+        history     the last ten games, 1 = quit, oldest first
+        dnf_last10  how many of those were quits
+        rep         REP: the percentage of their games they saw through
+                    rather than quit, 100 before any game
+    """
+    table = h2h_table(db) if table is None else table
+    blank = {'name': persona, 'quits': [],
+             'incomplete': dict.fromkeys(H2H_MODES, 0)}
+    e = table.get((persona or '').lower(), blank)
+    key = lambda wlt: (-wlt[0], wlt[1], -wlt[2])            # noqa: E731
+    ranks = {}
+    for mode in H2H_MODES:
+        mine = e.get(mode, [0, 0, 0])
+        if not any(mine):
+            ranks[mode] = 0
+            continue
+        ranks[mode] = 1 + sum(1 for o in table.values()
+                              if any(o[mode]) and key(o[mode]) < key(mine))
+    quits = e['quits']
+    games = len(quits)
+    return {
+        'records': {mode: list(e.get(mode, [0, 0, 0])) for mode in H2H_MODES},
+        'ranks': ranks,
+        'incomplete': dict(e['incomplete']),
+        'dnf': sum(e['incomplete'].values()),
+        'history': quits[-10:],
+        'dnf_last10': sum(quits[-10:]),
+        'rep': 100 if not games else int(round(100.0 * (games - sum(quits))
+                                               / games)),
+    }
+
+
+# ---------------------------------------------------------------------------
 # the in-game news
 
 def _money(n):
@@ -964,6 +1040,15 @@ def _selftest():
     now = time.time()
     db = sample(os.path.join(tempfile.gettempdir(), 'tw04-test-records.db'),
                 today)
+
+    # MY RESUME's head-to-head lines: alice beat bob at stroke play.
+    ha, hb = h2h_summary(db, 'alice'), h2h_summary(db, 'bob')
+    if (ha['records']['stroke'], ha['ranks']['stroke'], ha['rep'], ha['dnf'])             != ([1, 0, 0], 1, 100, 0) or ha['ranks']['match'] != 0:
+        fails.append('h2h summary for the winner is wrong: %r' % ha)
+    if (hb['records']['stroke'], hb['ranks']['stroke']) != ([0, 1, 0], 2):
+        fails.append('h2h summary for the loser is wrong: %r' % hb)
+    if h2h_summary(db, 'nobody')['rep'] != 100:
+        fails.append('a player with no games should start at REP 100')
 
     rs = rounds(db)
     print('rounds: %d' % len(rs))
