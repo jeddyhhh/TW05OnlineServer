@@ -201,77 +201,169 @@ COURSE_OFFSET = 14               # u8, indexes twstats.COURSES
 # every other day -- all carrying 0 there -- had the heart.  Which icon each
 # number is has not been enumerated; `probe_icons` is how to do that.
 ICON_OFFSET = 15
+# TW05: DATA BYTE 24, a signed byte.  The calendar's per-day callback
+# (0x0020AC20, reached through a table, never called directly) looks the day
+# up, writes its status line, and returns `lb 0x38(entry)` through the
+# accessor 0x001D6958 -- entry + 0x20 + 24.  A day with no event returns -1:
+# no icon.  Every event sent 0 here until 2026-09-30, and 0 is the heart, so
+# the whole calendar was hearts.
+ICON_OFFSET_TW05 = 24
 
-# Read off the calendar with --probe-icons, September 2026, one number a day.
-# Confidence varies and is stated: several are plain golf balls, several are too
-# small to read, and the ones marked (?) are a guess at what the art means
-# rather than what it looks like.
+# TW05's calendar icons, read off the calendar with --probe-icons on
+# 2026-09-30 (September: icon = date - 1; October: icon = date + 30).  There
+# are 56: 0..29 are TW04's set, 31..55 are new in TW05, and 56 on draw
+# nothing.  30 fell on 31 September, which does not exist, so it is unseen.
+# September had already been played through, so 0..29 were drawn dimmed;
+# the ones marked (?) are the least certain.
 #
-#    0  red heart                 12  half-shaded circle
-#    1  stars-and-stripes hat     13  half-shaded circle
-#    2  plain ball                14  reddish ball
-#    3  plain ball                15  plain ball
-#    4  gold star                 16  face or statue?
-#    5  plain ball                17  small yellow thing
-#    6  grey hat?                 18  not seen (under ACTIVE)
-#    7  pink, unclear             19  green shamrock
-#    8  snowflake                 20  Santa
-#    9  yellow burst              21  blue gem
-#   10  plain ball                22  jack-o'-lantern
-#   11  plain ball                23  yellow devil face
-#                                 24  firework burst
-#   26  cake                      25  red and yellow bird?
-#   27  dog?                      28  green tree
-#                                 29  green-white-red flag
-ICON_BALL = 2                    # an ordinary day: a golf ball
+#    0  heart                    19  shamrock               38  frog
+#    1  Uncle Sam hat            20  Santa                  39  candy cane
+#    2  ball (?)                 21  blue gem               40  gift box
+#    3  blue egg                 22  yellow scared face     41  maple leaf
+#    4  gold star                23  face, red bow (?)      42  French flag
+#    5  grey oval (?)            24  yellow burst           43  dollar sign
+#    6  top hat                  25  dragon (?)             44  sugar skull
+#    7  jester                   26  cake                   45  bonfire
+#    8  snowflake                27  groundhog (?)          46  Scottish saltire
+#    9  sun                      28  green tree             47  Australian flag
+#   10  pale ball (?)            29  green-white-red flag   48  padlock
+#   11  grey ball (?)            30  not seen               49  German flag
+#   12  half moon, dark left     31  US flag                50  Greek flag
+#   13  half moon, dark right    32  sailing ship           51  Italian flag
+#   14  red-and-white ball (?)   33  roast turkey           52  crown
+#   15  dark ball (?)            34  "JULY 4th"             53  bull
+#   16  Lincoln portrait         35  TW (Tiger Woods logo)  54  Swedish flag
+#   17  yellow sparkles          36  pie                    55  Swiss flag
+#   18  jack-o'-lantern          37  EA logo
+ICON_BALL = 2                    # an ordinary day, as in TW04: the ball
 ICON_DEFAULT = ICON_BALL
 
-# Dates that get an icon and a name of their own.  Two kinds are mixed here and
-# the difference matters:
-#
-#   * the real holidays, where the art was plainly drawn for that day and the
-#     only uncertainty is reading a small image;
-#   * invented events, which exist so the other icons are used at all.  Nothing
-#     in the game says these dates mean anything -- the icon suggested the
-#     event, not the other way round -- so they are free to move or rename.
-#
-# Anything marked (?) is a guess at what the art MEANS rather than what it looks
-# like, and is the first thing to check if a day draws something odd.
+# The year's special events: a date gets its own icon, and its name --
+# "Halloween at Pebble Beach".  Real holidays where the art was made for one;
+# invented events for the rest, so every icon we could read is used once.
+# Left out: the balls and the red-bow face (5, 10, 11, 14, 15, 23), which we
+# could not read well enough to name, and 30, never seen.
 SPECIAL_DAYS = {
-    # --- actual holidays -------------------------------------------------
-    (1, 1):   (24, "New Year's"),          # firework burst
-    (2, 14):  (0,  "Valentine's"),         # heart
-    (3, 17):  (19, "St Patrick's"),        # shamrock
-    (5, 5):   (29, 'Cinco de Mayo'),       # (?) green-white-red flag
-    (7, 4):   (1,  'Independence Day'),    # stars-and-stripes hat
-    (10, 31): (22, 'Halloween'),           # jack-o'-lantern
-    (12, 24): (28, 'Christmas Eve'),       # (?) green tree
-    (12, 25): (20, 'Christmas'),           # Santa
-
-    # --- invented, one per icon that would otherwise go unused ------------
-    (1, 15):  (8,  'Winter Open'),         # snowflake
-    (2, 22):  (16, 'Founders Cup'),        # a face or a statue
-    (3, 1):   (14, 'Red Ball Challenge'),  # a reddish ball
-    (3, 26):  (26, 'Anniversary Classic'), # cake
-    (4, 8):   (12, 'Eclipse Invitational'),# half-shaded circle
-    (4, 22):  (25, 'Birdie Bonanza'),      # a bird of some kind
-    (5, 2):   (6,  'Derby Day'),           # a hat
-    (6, 2):   (21, 'Diamond Jubilee'),     # blue gem
-    (6, 20):  (4,  'All-Star Invitational'),  # gold star
-    (6, 21):  (9,  'Midsummer Shootout'),  # yellow burst
-    (8, 5):   (17, 'Sunrise Open'),        # small and yellow
-    (8, 15):  (27, 'Dog Days Open'),       # a dog
-    (9, 10):  (13, 'Half Moon Classic'),   # the other half-shaded circle
-    (10, 1):  (7,  'Pink Ribbon Classic'), # pink, whatever it is
-    (10, 30): (23, "Devil's Night"),       # yellow devil face
-    (11, 11): (18, 'Wildcard Open'),       # never seen -- it was under ACTIVE
+    # January
+    (1, 1):   (17, "New Year's Day"),          # sparkles
+    (1, 15):  (8,  'Winter Open'),             # snowflake
+    (1, 26):  (47, 'Australia Day'),           # Australian flag
+    # February
+    (2, 2):   (27, 'Groundhog Day'),           # groundhog
+    (2, 10):  (25, 'Dragon Cup'),              # dragon
+    (2, 14):  (0,  "Valentine's Day"),         # heart
+    (2, 22):  (16, "Presidents' Day"),         # Lincoln
+    (2, 29):  (38, 'Leap Day Classic'),        # frog -- leap years only
+    # March
+    (3, 1):   (21, 'Diamond Invitational'),    # blue gem
+    (3, 14):  (36, 'Pi Day Classic'),          # pie
+    (3, 17):  (19, "St Patrick's Day"),        # shamrock
+    (3, 20):  (12, 'Spring Equinox'),          # half moon
+    (3, 25):  (50, 'Greek Independence Day'),  # Greek flag
+    # April
+    (4, 1):   (7,  "April Fools' Open"),       # jester
+    (4, 10):  (48, 'Members Only Invitational'),  # padlock
+    (4, 15):  (43, 'Tax Day Shootout'),        # dollar sign
+    (4, 22):  (28, 'Earth Day'),               # green tree
+    # May
+    (5, 5):   (29, 'Cinco de Mayo'),           # green-white-red flag
+    (5, 6):   (52, 'Coronation Cup'),          # crown
+    (5, 28):  (37, 'EA Sports Cup'),           # EA logo -- EA, 28 May 1982
+    # June
+    (6, 2):   (51, 'Festa della Repubblica'),  # Italian flag
+    (6, 6):   (54, 'Swedish National Day'),    # Swedish flag
+    (6, 14):  (31, 'Flag Day'),                # US flag
+    (6, 21):  (9,  'Midsummer Shootout'),      # sun
+    # July
+    (7, 1):   (41, 'Canada Day'),              # maple leaf
+    (7, 4):   (34, 'Independence Day'),        # "JULY 4th"
+    (7, 7):   (53, 'Running of the Bulls'),    # bull
+    (7, 14):  (42, 'Bastille Day'),            # French flag
+    # August
+    (8, 1):   (55, 'Swiss National Day'),      # Swiss flag
+    (8, 15):  (24, 'Summer Sizzler'),          # yellow burst
+    # September
+    (9, 13):  (1,  'Uncle Sam Day'),           # Uncle Sam hat
+    (9, 22):  (13, 'Autumn Equinox'),          # the other half moon
+    (9, 28):  (26, 'Anniversary Classic'),     # cake -- this server, 2026
+    # October
+    (10, 3):  (49, 'German Unity Day'),        # German flag
+    (10, 12): (32, 'Columbus Day'),            # ship
+    (10, 30): (22, 'Fright Night'),            # scared face
+    (10, 31): (18, 'Halloween'),               # jack-o'-lantern
+    # November
+    (11, 2):  (44, 'Day of the Dead'),         # sugar skull
+    (11, 5):  (45, 'Bonfire Night'),           # bonfire
+    (11, 11): (4,  'Veterans Day'),            # gold star
+    (11, 30): (46, "St Andrew's Day"),         # saltire
+    # December
+    (12, 24): (39, 'Christmas Eve'),           # candy cane
+    (12, 25): (20, 'Christmas Day'),           # Santa
+    (12, 26): (40, 'Boxing Day'),              # gift box
+    (12, 30): (35, "Tiger's Birthday"),        # TW -- Tiger Woods, 30 Dec
+    (12, 31): (6,  "New Year's Eve"),          # top hat
 }
+
+
+def easter(year):
+    """Easter Sunday (the anonymous Gregorian computus)."""
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month, day = divmod(h + l - 7 * m + 114, 31)
+    return datetime.date(year, month, day + 1)
+
+
+def thanksgiving(year):
+    """US Thanksgiving: the fourth Thursday of November."""
+    first = datetime.date(year, 11, 1)
+    return first + datetime.timedelta(days=(3 - first.weekday()) % 7 + 21)
+
+
+# Holidays whose date moves, (function of the year, icon, name).  They take
+# precedence over a fixed event on the same day -- Easter can land on April
+# Fools' or Tax Day -- and keep their own icons, so none is ever shared.
+MOVABLE_DAYS = (
+    (easter, 3, 'Easter Sunday'),              # blue egg
+    (thanksgiving, 33, 'Thanksgiving'),        # roast turkey
+)
+
+# The names this list replaced (TW04's, carried into the fork).  Stored
+# months that still use one are renamed -- see lobbyd.rename_calendar.
+OLD_SPECIAL_NAMES = (
+    "New Year's", "Valentine's", "St Patrick's", 'Cinco de Mayo',
+    'Independence Day', 'Halloween', 'Christmas Eve', 'Christmas',
+    'Winter Open', 'Founders Cup', 'Red Ball Challenge', 'Anniversary Classic',
+    'Eclipse Invitational', 'Birdie Bonanza', 'Derby Day', 'Diamond Jubilee',
+    'All-Star Invitational', 'Midsummer Shootout', 'Sunrise Open',
+    'Dog Days Open', 'Half Moon Classic', 'Pink Ribbon Classic',
+    "Devil's Night", 'Wildcard Open',
+)
 
 
 def holiday(day):
     """(icon, name) for a day that has one, or None."""
     d = from_day(day)
+    for when, icon, name in MOVABLE_DAYS:
+        if when(d.year) == d:
+            return icon, name
     return SPECIAL_DAYS.get((d.month, d.day))
+
+
+def special_name(day, course_name):
+    """What a special day is called: "Halloween at Pebble Beach" when it
+    fits the 32-character field (the client truncates without telling
+    anyone), else just "Halloween".  None on an ordinary day."""
+    special = holiday(day)
+    if not special:
+        return None
+    joined = '%s at %s' % (special[1], course_name) if course_name else special[1]
+    return joined if len(joined) <= NAME_MAX else special[1]
 
 # Offsets 4..11 and 15 are unnamed.  One of them almost certainly means "this
 # event needs a password": the client prompted for one while they were all
@@ -295,10 +387,11 @@ def make_entry(name, day, purse=0, course=0, width=DATA_BYTES, data=None,
     if width == DATA_BYTES:
         # TW05's 60-byte calendar entry.  `course` is an index into
         # twstats.COURSES and goes out as its four-character code; the event
-        # name also goes in the headline text.  TW04's icon byte has no TW05
-        # home yet.  entries_for adds "no forced golfer" for real events.
+        # name also goes in the headline text, and the icon in its own byte.
+        # entries_for adds "no forced golfer" for real events.
         struct.pack_into('<I', out, PURSE_OFFSET, purse & 0xFFFFFFFF)
         struct.pack_into('<H', out, DAY_OFFSET, day)
+        out[ICON_OFFSET_TW05] = icon & 0xFF
         if 0 <= course < len(COURSE_CODES):
             struct.pack_into('<I', out, COURSE_CODE_OFFSET,
                              course_code(COURSE_CODES[course]))
@@ -447,11 +540,7 @@ def generate_month(year, month, courses=None):
                 break
         taken.add(name)
         if special:
-            # "Christmas at Pebble Beach" when it fits -- the name field is 32
-            # characters and the client truncates without telling anyone, so a
-            # long course turns into "St Patrick's at Kapalua Plantati".
-            joined = '%s at %s' % (special[1], cname) if cname else special[1]
-            name = joined if len(joined) <= NAME_MAX else special[1]
+            name = special_name(day, cname)
         out.append({'day': day, 'name': name[:NAME_MAX], 'course': course,
                     'purse': purse, 'icon': icon, 'conditions': conditions})
     return out
@@ -500,14 +589,20 @@ UNKNOWN_OFFSETS = (4, 5, 6, 7, 8, 9, 10, 11, 15)
 def probe_icons(count, start, courses=None):
     """One day per icon number, so a month draws every icon there is.
 
-    Byte 15 takes the day's position in the month and the name says which
-    number it is, so a single screenshot enumerates the set -- including where
-    the numbers run out, which is the part that cannot be guessed.
+    TW05: numbered by the DATE, not by position in the request -- the client
+    asks for overlapping ranges as it pages, and a number must not move.  An
+    odd month runs 0..30 (the 1st is icon 0), an even month 31..61, so two
+    screenshots cover 62 numbers and a cell's date says its number: odd month
+    day d is d - 1, even month d + 30.  The headline says it too.
     """
     out = []
     for i in range(count):
+        day = start + i
+        d = from_day(day)
+        icon = d.day - 1 + (31 if d.month % 2 == 0 else 0)
         course = TOURNEY_COURSES[i % len(TOURNEY_COURSES)]
-        out.append(make_entry('Icon %d' % i, start + i, 1000000, course, icon=i))
+        out.append(make_entry('Icon %d' % icon, day, 1000000, course,
+                              icon=icon))
     return out
 
 
@@ -1001,7 +1096,7 @@ def main():
         # course code 20-23 and the headline text 28-59.
         spare = [k for k in range(DATA_BYTES)
                  if k not in (0, 1, 2, 3, FORCED_GOLFER_OFFSET, DAY_OFFSET,
-                              DAY_OFFSET + 1)
+                              DAY_OFFSET + 1, ICON_OFFSET_TW05)
                  and not CONDITIONS_OFFSET <= k < CONDITIONS_OFFSET + 4
                  and not COURSE_CODE_OFFSET <= k < COURSE_CODE_OFFSET + 4
                  and not TEXT_OFFSET <= k < TEXT_OFFSET + TEXT_BYTES
@@ -1118,10 +1213,15 @@ def main():
           % (year, mon, len(events), events[0]['name'],
              format(events[0]['purse'], ',')))
 
-    # 7b1. holidays get their icon and their name, and names fit the field
-    for (mm, dd), (icon, label) in SPECIAL_DAYS.items():
-        when = to_day(datetime.date(2027, mm, dd))
-        ev = [e for e in generate_month(2027, mm) if e['day'] == when]
+    # 7b1. holidays get their icon and their name, and names fit the field.
+    # 2028 is a leap year, so Leap Day is there too; and the movable days
+    # (Easter 16 April, Thanksgiving 23 November) land on no fixed one.
+    checks = [(datetime.date(2028, mm, dd), icon, label)
+              for (mm, dd), (icon, label) in SPECIAL_DAYS.items()]
+    checks += [(when(2028), icon, label) for when, icon, label in MOVABLE_DAYS]
+    for date, icon, label in checks:
+        when = to_day(date)
+        ev = [e for e in generate_month(2028, date.month) if e['day'] == when]
         if not ev:
             fails.append('%s is not in the generated month' % label)
             continue
@@ -1131,6 +1231,15 @@ def main():
         if not ev[0]['name'].startswith(label):
             fails.append('%s should be named for the day, got %r'
                          % (label, ev[0]['name']))
+    if len(SPECIAL_DAYS[2, 29][1]) > NAME_MAX:
+        fails.append('a special name is longer than the field')
+    # the movable days fall where they should
+    for got, want in ((easter(2026), datetime.date(2026, 4, 5)),
+                      (easter(2027), datetime.date(2027, 3, 28)),
+                      (thanksgiving(2026), datetime.date(2026, 11, 26)),
+                      (thanksgiving(2027), datetime.date(2027, 11, 25))):
+        if got != want:
+            fails.append('movable holiday on %s, expected %s' % (got, want))
     over = [e['name'] for yy in (2026, 2027) for mm in range(1, 13)
             for e in generate_month(yy, mm) if len(e['name']) > NAME_MAX]
     if over:
@@ -1142,14 +1251,15 @@ def main():
         fails.append('an ordinary day should carry the default icon')
     # No two special days may share an icon -- the whole point is that each
     # one is recognisable on the calendar.
-    icons = [icon for icon, _ in SPECIAL_DAYS.values()]
+    icons = ([icon for icon, _ in SPECIAL_DAYS.values()]
+             + [icon for _, icon, _ in MOVABLE_DAYS])
     if len(set(icons)) != len(icons):
         dupes = sorted(i for i in set(icons) if icons.count(i) > 1)
         fails.append('icons used by more than one day: %s' % dupes)
     if ICON_DEFAULT in icons:
         fails.append('a special day is using the everyday icon')
     print('icons:   %d special days a year, %d distinct icons, the rest a golf '
-          'ball (%d)' % (len(SPECIAL_DAYS), len(set(icons)), ICON_DEFAULT))
+          'ball (%d)' % (len(icons), len(set(icons)), ICON_DEFAULT))
 
     # 7b2. nothing unplayable ever reaches a calendar
     for c in UNPLAYABLE_COURSES:

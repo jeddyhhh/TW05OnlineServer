@@ -297,7 +297,45 @@ def ensure_season():
              % ', '.join(made))
     repair_calendar()
     reprice_calendar()
+    rename_calendar()
     return made
+
+
+def rename_calendar():
+    """Bring upcoming events' names in line with the special days.
+
+    The icon is worked out from the date when an event is served, so a new
+    special-days list reaches the calendar at once -- but the NAME is stored
+    when the month is generated.  Without this, a month written under the
+    old list keeps "Pink Ribbon Classic" on a day that now draws a flag.  A
+    special day gets its name ("Halloween at Pebble Beach"); a day that was
+    special under an earlier list and is not now goes back to an ordinary
+    one.  From tomorrow on, never a day somebody has played: its rounds are
+    recorded under the name it had.  Idempotent."""
+    today = twtourney.today()
+    played = {r['day'] for r in DB.query(
+        'SELECT DISTINCT day FROM tourney WHERE day > ?', (today,))}
+    labels = (set(twtourney.OLD_SPECIAL_NAMES)
+              | {n for _, n in twtourney.SPECIAL_DAYS.values()}
+              | {n for _, _, n in twtourney.MOVABLE_DAYS})
+    changed = []
+    for event in DB.events(today + 1, 1 << 16):
+        if event['day'] in played:
+            continue
+        cname = twstats.course_name(event['course'])
+        want = twtourney.special_name(event['day'], cname)
+        if want is None:
+            if not any(event['name'].startswith(n) for n in labels):
+                continue                    # an ordinary name stays as it is
+            want = twtourney.name_for_day(event['day'], cname)
+        if want != event['name']:
+            DB.replace_event(event['day'], want, event['course'])
+            changed.append((event['day'], event['name'], want))
+    for day, old, new in changed[:5]:
+        log('***', 'renamed %s: %r -> %r' % (twtourney.from_day(day), old, new))
+    if len(changed) > 5:
+        log('***', '... and %d more upcoming events renamed' % (len(changed) - 5))
+    return changed
 
 
 def repair_calendar():
