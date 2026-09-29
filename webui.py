@@ -229,12 +229,62 @@ body::after { left:8vw; right:8vw; top:26vh; height:120vh;
 .brand small { display:block; font-size:.68rem; letter-spacing:.2em;
                color:var(--mute); font-weight:700; margin-top:.1rem;
                text-shadow:none; }
-nav { margin-left:auto; display:flex; gap:.3rem; flex-wrap:wrap;
+/* The menu is a row of its own under the title, starting at the left, on
+   one line (signed in there are nine links).  The negative margins take back
+   the links' own padding, so the first link's text lines up with the title
+   and the last one's with the page. */
+nav { flex:1 0 100%; display:flex; gap:.3rem; flex-wrap:nowrap;
+      overflow-x:auto; scrollbar-width:none; margin:0 -.7rem;
       font-size:.8rem; font-weight:700; letter-spacing:.06em;
       text-transform:uppercase; }
+nav::-webkit-scrollbar { display:none; }
 nav a { color:var(--ink); text-decoration:none; padding:.2rem .7rem;
-        border-radius:999px; }
+        border-radius:999px; white-space:nowrap; }
 nav a:hover { background:var(--pill); color:var(--pill-ink); }
+
+/* On a phone the row gives way to a MENU button -- white capitals on a
+   maroon bar, like a panel's title -- that drops the links down over the
+   page, one to a line, the one under your finger in the pale pill the menus
+   mark the chosen row with.  Below 900px, where the row would otherwise have
+   to scroll. */
+.top { position:relative; }
+.menu { display:none; }
+.menu summary { list-style:none; cursor:pointer; display:flex; align-items:center;
+  gap:.55rem; padding:.45rem .85rem; color:#fff; font-size:.8rem;
+  font-weight:800; font-style:italic; letter-spacing:.06em;
+  text-transform:uppercase; user-select:none;
+  background:linear-gradient(90deg,var(--maroon-2),var(--maroon));
+  border-left:4px solid var(--maroon-3); }
+.menu summary::-webkit-details-marker { display:none; }
+.menu summary::before { content:""; width:1.1rem; height:2px;
+  background:currentColor; box-shadow:0 -5px 0 currentColor, 0 5px 0 currentColor;
+  margin:5px 0; }
+.menu summary:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+.menu[open] summary { background:var(--pill); color:var(--pill-ink);
+  border-left-color:var(--gold); }
+.menu-list { position:absolute; left:0; right:0; top:100%; z-index:20;
+  background:#0a1416; border-bottom:2px solid rgba(214,226,228,.55);
+  box-shadow:0 12px 24px rgba(0,0,0,.55); padding:.5rem .6rem .7rem; }
+.menu-list a { display:block; margin:.1rem 0; padding:.65rem 1rem;
+  border-radius:999px; color:var(--ink); text-decoration:none;
+  font-size:.95rem; font-weight:800; font-style:italic; letter-spacing:.05em;
+  text-transform:uppercase; }
+.menu-list a:hover, .menu-list a:focus-visible { background:var(--pill);
+  color:var(--pill-ink); outline:none; }
+@media (max-width:900px) {
+  nav { display:none; }
+  .menu { display:block; margin-left:auto; }
+  .top .wrap { flex-wrap:nowrap; }
+}
+/* Beside the button on a phone the title gets a little smaller, to stay on
+   one line; and "PGA Tour 2005" never breaks in the middle -- on a phone too
+   narrow even for that, the title wraps after "Tiger Woods". */
+.brand span { white-space:nowrap; }
+@media (max-width:480px) {
+  .brand { font-size:.9rem; letter-spacing:.03em; }
+  .brand small { font-size:.6rem; letter-spacing:.12em; }
+  .menu summary { padding:.4rem .65rem; gap:.45rem; }
+}
 
 .wrap { max-width:56rem; margin:0 auto; padding:0 1rem; }
 main.wrap { padding-top:2rem; padding-bottom:1rem; }
@@ -275,7 +325,7 @@ td { padding:.5rem .4rem; border-bottom:1px solid var(--line); }
 tbody tr:last-child td { border-bottom:0; }
 tbody tr:hover td { background:rgba(255,255,255,.05); }
 td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
-td.num { white-space:nowrap; }
+td.num, th.num { white-space:nowrap; }
 tr.me td { background:rgba(224,168,0,.08); }
 tr.me td:first-child { box-shadow:inset 3px 0 0 var(--gold); }
 .rank { color:var(--mute); font-variant-numeric:tabular-nums; }
@@ -384,8 +434,7 @@ a.pl:hover { color:var(--gold); border-bottom-color:var(--gold); }
 .show-sm { display:none; }
 @media (max-width:560px) { .hide-sm { display:none; } .show-sm { display:block; }
   .card { padding:1.1rem 1rem 1.2rem; }
-  .card > h2:first-child { margin:-1.1rem -1rem 1rem; padding:.5rem 1rem; }
-  nav { margin-left:0; } }
+  .card > h2:first-child { margin:-1.1rem -1rem 1rem; padding:.5rem 1rem; } }
 .conds { color:var(--mute); font-size:.85rem; }
 /* an event's prize money: hidden under its schedule row until the event's
    name is clicked (a #pay-<day> link), so it needs no script */
@@ -904,6 +953,12 @@ def page(title, body, message=None, kind='err', stats=True, refresh=0,
               if message else '')
     links = (NAV + (NAV_ACCOUNT,)) if signed_in else NAV
     nav = ''.join('<a href="%s">%s</a>' % (u(href), text) for href, text in links)
+    # The same links twice: a row for a wide screen, and for a phone a MENU
+    # button that drops them down as a list.  CSS shows one or the other; the
+    # drop-down is a <details>, so it opens and shuts with no script, and
+    # following a link loads a page with it shut again.
+    nav = ('<nav>%s</nav><details class="menu"><summary>Menu</summary>'
+           '<div class="menu-list">%s</div></details>' % (nav, nav))
     board = _prefix_links(stats_board()) if stats else ''
     strip = _prefix_links(live_strip())
     meta = ('<meta http-equiv="refresh" content="%d">' % refresh) if refresh else ''
@@ -912,7 +967,7 @@ def page(title, body, message=None, kind='err', stats=True, refresh=0,
 <title>%s</title><style>%s</style></head><body>
 <header class="top"><div class="wrap">
 <p class="brand">Tiger Woods <span>PGA Tour 2005</span><small>Online &mdash; community master server</small></p>
-<nav>%s</nav></div></header>%s
+%s</div></header>%s
 <main class="wrap">%s%s</main>
 <footer><div class="wrap">%s
 <p class="foot" style="margin-top:1.4rem">This server grew out of TW04 Online
