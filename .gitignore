@@ -1,0 +1,31 @@
+# Everything the servers write at run time.  data/ holds every account and
+# password hash, and data/reports.key is the secret in the abuse-reports page's
+# address -- none of it belongs in a repository.
+data/
+logs/
+run/
+*.db
+*.db-wal
+*.db-shm
+reports.key
+admin.key
+news.txt
+
+# Python
+__pycache__/
+*.py[cod]
+
+# The analysis helpers' index of the game executable (analysis/README.md)
+_cache/
+
+# Game files are never distributed here: bring your own disc image and BIOS.
+*.iso
+*.bin
+*.pnach
+SLUS_*
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
