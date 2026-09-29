@@ -2850,8 +2850,10 @@ try them &mdash; working or not &mdash; please report what happened on
                 'maxlength="%d" spellcheck="true">%s</textarea>'
                 '<p class="foot" style="margin:.5rem 0 0">Plain ASCII, up to %d '
                 'characters. The NEWS screen fits about %d characters a line; '
-                'longer lines are wrapped for you. The server&rsquo;s '
-                'automatic digest of recent results follows it. Saved to '
+                'longer lines are wrapped for you. TW05&rsquo;s news screen '
+                'can&rsquo;t draw a hyphen (-), so leave them out. The '
+                'server&rsquo;s automatic digest of recent results follows it. '
+                'Saved to '
                 '<code>%s</code>.</p><button type="submit">Save news</button>'
                 '</form></div>'
                 % (base, esc(query), twdb.MIN_PASSWORD, twdb.MAX_PASSWORD,

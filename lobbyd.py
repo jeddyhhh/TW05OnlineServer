@@ -2235,7 +2235,7 @@ class Handler(socketserver.BaseRequestHandler):
     # (twrecords.NEWS_WIDTH).  Whoever reads this is already signed in, so the
     # default has no sign-up instructions.
     NEWS_MAX = 0x1388 - 1
-    NEWS_DEFAULT = "Welcome back to Tiger Woods PGA Tour 2004 online."
+    NEWS_DEFAULT = "Welcome back to Tiger Woods PGA Tour 2005 online."
 
     def news_text(self):
         """Whatever is in the news file right now, or the built-in message.

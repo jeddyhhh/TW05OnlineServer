@@ -27,6 +27,7 @@ record.  `clean()` holds the limits.
 import collections
 import datetime
 import json
+import re
 import textwrap
 import time
 
@@ -870,10 +871,28 @@ def news(db, now=None, today=None):
     out = []
     for lines in sections:
         for line in lines:
-            out.extend(textwrap.wrap(line, NEWS_WIDTH,
+            out.extend(textwrap.wrap(news_safe(line), NEWS_WIDTH,
                                      subsequent_indent='  ') or [''])
         out.append('')
     return '\n'.join(out).rstrip('\n')
+
+
+_SIGNED = re.compile(r'(?<![\w.])([+-])(\d+(?:\.\d+)?)')
+
+
+def news_safe(line):
+    """A digest line as TW05's news screen can draw it.
+
+    It drops the hyphen: "Won by JeddyH with 62 (-10)" showed as "(10)",
+    which reads as ten OVER (2026-09-29).  So a score against par is spelt
+    out -- "(10 under)", "(2 over)", "(even)" -- and any other hyphen, as in
+    Turnberry-Ailsa, becomes a space.  A sign counts only where it starts a
+    number, so a date or a name with a hyphen in it is left to the second
+    rule."""
+    line = _SIGNED.sub(lambda m: '%s %s' % (
+        m.group(2), 'under' if m.group(1) == '-' else 'over'), line)
+    line = line.replace('(E)', '(even)')
+    return line.replace('-', ' ')
 
 
 def wrap_news(text):
@@ -986,8 +1005,9 @@ def _selftest():
 
     text = news(db, now=now, today=today)
     print('---- news ----\n%s\n--------------' % text)
-    for want in ('TODAY: Test Open', 'Leader: bob 68 (-4)', 'YESTERDAY',
-                 'Won by alice with 66 (-6)', 'Most active',
+    # Scores spelt out: TW05's news screen drops the hyphen (news_safe).
+    for want in ('TODAY: Test Open', 'Leader: bob 68 (4 under)', 'YESTERDAY',
+                 'Won by alice with 66 (6 under)', 'Most active',
                  'Hole in one: carol'):
         if want not in text:
             fails.append('news should say %r' % want)
