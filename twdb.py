@@ -641,6 +641,18 @@ class DB:
             'SELECT kind, COUNT(*) AS n FROM feedback WHERE player = ?'
             ' GROUP BY kind', (player,))}
 
+    def complaints_for(self, player):
+        """How many different (reporter, kind) complaints name `player` --
+        the FEEDBACK reports, counted like the compliments: once per player
+        per kind, however often it was sent.  REPORT ABUSE without a kind
+        (TW04's, and anything stored before kinds were) is not counted."""
+        kinds = [k for k in FEEDBACK_KINDS if k not in PRAISE]
+        return self.one(
+            'SELECT COUNT(*) AS n FROM (SELECT DISTINCT reporter COLLATE NOCASE,'
+            ' kind FROM reports WHERE accused = ? COLLATE NOCASE'
+            ' AND kind IN (%s))' % ','.join('?' * len(kinds)),
+            [player] + kinds)['n']
+
     def reports(self, handled=False, limit=100):
         """Open reports (or handled ones), newest first, each with the
         reported persona's account and how many reports name that persona."""

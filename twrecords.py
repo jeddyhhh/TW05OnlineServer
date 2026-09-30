@@ -837,8 +837,7 @@ def h2h_summary(db, persona, table=None):
         incomplete  {mode: games quit}; dnf is their sum (DID NOT FINISH)
         history     the last ten games, 1 = quit, oldest first
         dnf_last10  how many of those were quits
-        rep         REP: the percentage of their games they saw through
-                    rather than quit, 100 before any game
+        rep         REP, from the game's FEEDBACK screen (reputation())
     """
     table = h2h_table(db) if table is None else table
     blank = {'name': persona, 'quits': [],
@@ -862,9 +861,23 @@ def h2h_summary(db, persona, table=None):
         'dnf': sum(e['incomplete'].values()),
         'history': quits[-10:],
         'dnf_last10': sum(quits[-10:]),
-        'rep': 100 if not games else int(round(100.0 * (games - sum(quits))
-                                               / games)),
+        'rep': reputation(db, persona),
     }
+
+
+REP_START = 100
+
+
+def reputation(db, persona):
+    """REP on MY RESUME: 100 to start, +1 for each compliment and -1 for each
+    complaint from the game's FEEDBACK screen, each counted once per player
+    who gave it (twdb.feedback_for, complaints_for).  The console draws any
+    number (RP=501 drew 501); it stops at 0 rather than going negative."""
+    if not persona:
+        return REP_START
+    good = sum(db.feedback_for(persona).values())
+    bad = db.complaints_for(persona)
+    return max(0, REP_START + good - bad)
 
 
 # ---------------------------------------------------------------------------
@@ -1048,7 +1061,23 @@ def _selftest():
     if (hb['records']['stroke'], hb['ranks']['stroke']) != ([0, 1, 0], 2):
         fails.append('h2h summary for the loser is wrong: %r' % hb)
     if h2h_summary(db, 'nobody')['rep'] != 100:
-        fails.append('a player with no games should start at REP 100')
+        fails.append('a player with no feedback should start at REP 100')
+    # REP follows FEEDBACK: +1 a compliment, -1 a complaint, once per giver
+    # and kind.  Quitting no longer touches it (that is DNF's job).
+    for giver in ('bob', 'carol', 'dave'):
+        db.add_feedback(giver, 'alice', 'honest')
+    db.add_feedback('bob', 'alice', 'honest')
+    db.add_feedback('bob', 'alice', 'goodsession')
+    for reporter, kind in (('bob', 'cheating'), ('bob', 'cheating'),
+                           ('carol', 'language'), ('dave', '')):
+        db.add_report(reporter, 'ALICE', kind=kind)
+    if reputation(db, 'alice') != 100 + 4 - 2:
+        fails.append('REP should be 100 + 4 compliments - 2 complaints, got %d'
+                     % reputation(db, 'alice'))
+    for n in range(150):
+        db.add_report('troll%d' % n, 'bob', kind='badname')
+    if reputation(db, 'bob') != 0:
+        fails.append('REP should stop at 0, got %d' % reputation(db, 'bob'))
 
     rs = rounds(db)
     print('rounds: %d' % len(rs))

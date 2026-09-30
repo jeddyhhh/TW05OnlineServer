@@ -2172,8 +2172,9 @@ try them &mdash; working or not &mdash; please report what happened on
                 'console&rsquo;s MY RESUME. Ranks go by wins, then fewest '
                 'losses; Battle games count only toward did-not-finish, as '
                 'match play. Did not finish in the last 10 games: '
-                '<strong>%d</strong>. Rep is the share of games seen through '
-                'rather than quit.</p></div>'
+                '<strong>%d</strong>. Rep starts at 100: each player who '
+                'praises them in the game&rsquo;s Feedback adds 1, each who '
+                'complains takes 1 away.</p></div>'
                 % (''.join(rows), mine['dnf_last10']))
 
     def activity_card(self):

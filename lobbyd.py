@@ -3031,8 +3031,10 @@ class Handler(socketserver.BaseRequestHandler):
         if kind in twdb.PRAISE:
             if found:
                 DB.add_feedback(self.persona, found['name'], kind)
-                log('***', '    FEEDBACK: %s says %s: %s'
-                    % (self.persona, found['name'], twdb.FEEDBACK_KINDS[kind]))
+                log('***', '    FEEDBACK: %s says %s: %s -- REP now %d'
+                    % (self.persona, found['name'], twdb.FEEDBACK_KINDS[kind],
+                       reputation(found['name'])))
+                refresh_who(found['name'])      # their REP just changed
             return
         now = time.time()
         key = (self.persona.lower(), accused.lower())
@@ -3053,6 +3055,8 @@ class Handler(socketserver.BaseRequestHandler):
             % (rid, self.persona, accused,
                ' for %s' % twdb.FEEDBACK_KINDS[kind] if kind else '',
                ' in %s' % room if room else '', len(chat)))
+        if kind and found:
+            refresh_who(found['name'])          # a complaint costs REP
 
     def on_rank(self, ident, tags):
         """Lobby_SendTwoPlayerResults. _SendResultsCallback reads TITLE, MESG.
