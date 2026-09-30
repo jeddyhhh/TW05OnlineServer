@@ -510,6 +510,13 @@ def main():
         if reports != [('bob', 'cheating')]:
             fails.append('only the complaint should be a report, with its '
                          'kind, got %r' % reports)
+        # ...and REP follows: 100 + 2 compliments - 1 complaint
+        alice.sendall(frame('onln', {'PERS': 'bob'}))
+        _, body = expect(alice, 'onln')
+        rep = tags_of(body).get('RP')
+        print('rep:    bob RP=%s' % rep)
+        if rep != '101':
+            fails.append('REP should be 100 + 2 - 1 = 101, got %r' % rep)
 
         buddy_flow(key_a, key_b, fails, socks)
         request_flow(key_a, key_b, fails, socks)
