@@ -552,8 +552,9 @@ def conditions_line(conditions):
 
 
 def conditions_cells(conditions, cls='hide-sm'):
-    """The same settings as four table cells, Tees / Rough / Fairways /
-    Greens, for the schedule."""
+    """The same settings as table cells, one per twtourney.EVENT_SETTINGS
+    (Tees / Rough / Fairways / Greens / Attributes / Difficulty), for the
+    schedule."""
     return ''.join('<td class="%s">%s</td>' % (cls, html.escape(option))
                    for _label, option, _default in
                    twtourney.condition_items(conditions))
@@ -1894,7 +1895,7 @@ try them &mdash; working or not &mdash; please report what happened on
         for e in DB.events(today, 15):
             course = twstats.course_name(e['course'])
             when = twtourney.from_day(e['day'])
-            # All four settings, always: in their own columns on a wide
+            # Every setting, always: in their own columns on a wide
             # screen, and as a line under the event's name on a phone.
             # Today's date goes to its leaderboard; later days have none yet.
             date = when.strftime('%a %d %b')
@@ -1911,13 +1912,14 @@ try them &mdash; working or not &mdash; please report what happened on
                            twtourney.money(e['purse'])))
             # The Tour-style split of this event's purse, top ten only --
             # the same `payout` the money list and the console use.
-            rows.append('<tr class="payout" id="pay-%d"><td colspan="8">'
+            rows.append('<tr class="payout" id="pay-%d"><td colspan="%d">'
                         '<table><caption>%s prize money '
                         '<a href="#schedule">Close</a></caption>'
                         '<thead><tr><th>Place</th><th class="num">Share</th>'
                         '<th class="num">Prize</th></tr></thead><tbody>%s'
                         '</tbody></table></td></tr>'
-                        % (e['day'], esc(e['name']), ''.join(
+                        % (e['day'], 4 + len(twtourney.EVENT_SETTINGS),
+                           esc(e['name']), ''.join(
                             '<tr><td>%s</td><td class="num">%s%%</td>'
                             '<td class="num">%s</td></tr>'
                             % (_ordinal(n), ('%.2f' % (share * 100))
@@ -1928,8 +1930,8 @@ try them &mdash; working or not &mdash; please report what happened on
             '<p class="foot" style="margin:-.4rem 0 .8rem">Click an event to '
             'see how its purse is paid out.</p>' if rows else '') + (
             '<table><thead><tr><th>Date</th><th>Event</th><th>Course</th>'
-            '<th class="hide-sm">Tees</th><th class="hide-sm">Rough</th>'
-            '<th class="hide-sm">Fairways</th><th class="hide-sm">Greens</th>'
+            + ''.join('<th class="hide-sm">%s</th>' % twtourney.SETTING_LABELS[s]
+                      for s in twtourney.EVENT_SETTINGS) +
             '<th class="num">Purse</th></tr></thead><tbody>'
             + ''.join(rows) + '</tbody></table>' if rows else
             '<p class="foot" style="margin:0">No events scheduled.</p>'))

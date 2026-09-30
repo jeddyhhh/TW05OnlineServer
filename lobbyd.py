@@ -368,17 +368,20 @@ def reprice_calendar():
 
     Months are generated once and kept, so a new rule reaches a calendar that
     already exists only through here.  From today onward, and never on a day
-    somebody has played (twdb.refresh_events).  An event that already has
-    conditions keeps them; one that has none gets its day's draw -- except
-    TODAY's, which keeps the game's defaults, because it may already be being
-    played on them.  Idempotent: once the calendar agrees, it changes nothing
-    and says nothing."""
+    somebody has played (twdb.refresh_events).  An event keeps the settings
+    it already has, and any it is missing (all of them, or the attributes and
+    difficulty added 2026-09-30) come from its day's draw -- except TODAY's,
+    which keeps the game's defaults, because it may already be being played
+    on them.  Idempotent: once the calendar agrees, it changes nothing and
+    says nothing."""
     today = twtourney.today()
 
     def plan(event):
         conditions = event['conditions']
-        if not conditions and event['day'] > today:
-            conditions = twtourney.event_conditions(event['day'])
+        if event['day'] > today and set(conditions or {}) != set(
+                twtourney.EVENT_SETTINGS):
+            conditions = dict(twtourney.event_conditions(event['day']),
+                              **(conditions or {}))
         return conditions, twtourney.event_purse(event['course'], conditions)
 
     changed = DB.refresh_events(today, plan)
@@ -391,7 +394,7 @@ def reprice_calendar():
     if len(changed) > 5:
         log('***', '... and %d more upcoming events updated' % (len(changed) - 5))
     if changed:
-        note('calendar', 'upcoming tournaments now have course conditions, and '
+        note('calendar', 'upcoming tournaments now carry every event setting, and '
              'purses to match (%d events updated)' % len(changed))
     return changed
 

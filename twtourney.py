@@ -574,9 +574,13 @@ def entries_for(events):
             special = holiday(e['day'])
             icon = special[0] if special else ICON_DEFAULT
         data = bytearray(DATA_BYTES)
+        conditions = full_conditions(e.get('conditions'))
         struct.pack_into('<I', data, CONDITIONS_OFFSET,
-                         conditions_word(full_conditions(e.get('conditions'))))
+                         conditions_word(conditions))
+        struct.pack_into('<I', data, RULES_OFFSET,
+                         conditions_word(conditions, RULES_OFFSET))
         data[FORCED_GOLFER_OFFSET] = NO_FORCED_GOLFER
+        data[MAX_ATTEMPTS_OFFSET] = NO_ATTEMPT_LIMIT
         out.append(make_entry(e['name'], e['day'], e['purse'], e['course'],
                               data=data, icon=icon))
     return out
@@ -677,26 +681,60 @@ CONDITIONS = {
     'rough':    {'Average': 0, 'Short': 1 << 14, 'Long': 1 << 16},
     'fairways': {'Slow': 0, 'Medium': 1 << 18, 'Fast': 1 << 19},
     'greens':   {'Medium': 0, 'Slow': 1 << 11, 'Fast': 1 << 13},
+    # These two live in the u32 at data byte 8 (RULES_OFFSET), not 12.  Read
+    # off 0x001D6B78 and 0x001D6990 and confirmed on the UPCOMING EVENT screen
+    # 2026-09-30 (--probe-layout settings).
+    #
+    # ATTRIBUTES: every golfer's ratings set to one level for the round
+    # (0x001D6FF0 turns the option into 50..100, stored when the event
+    # starts).  No bit at all is "All 100's", which is what every event had
+    # before this was mapped; 0x20000 draws N/A -- no cap, the player's own
+    # golfer as they built them.
+    'attributes': {"All 100's": 0, "All 90's": 1 << 22, "All 80's": 1 << 21,
+                   "All 70's": 1 << 20, "All 60's": 1 << 19,
+                   "All 50's": 1 << 18, 'Own': 1 << 17},
+    # DIFFICULTY: Tour switches on the game's Tour difficulty when the event
+    # starts (0x00170EA0(1)); Default leaves it off.  No bit draws N/A and
+    # plays the same as Default, so events always say which.
+    'difficulty': {'Default': 1 << 15, 'Tour': 1 << 16},
 }
+RULES_OFFSET = 8                 # the u32 holding attributes and difficulty
+SETTING_OFFSETS = {'attributes': RULES_OFFSET, 'difficulty': RULES_OFFSET}
 DEFAULT_CONDITIONS = {k: next(n for n, bit in v.items() if not bit)
-                      for k, v in CONDITIONS.items()}
+                      for k, v in CONDITIONS.items() if k != 'difficulty'}
+DEFAULT_CONDITIONS['difficulty'] = 'Default'
+# Also in the data-8 word, and deliberately left clear: bits 7, 8 and 11 only
+# pick the calendar's status line for a day (0x0020AC20, through 0x001D6FE0),
+# and bits 8-10 of the data-12 word are applied at the start (0x001D6A00) but
+# never drawn -- probably the pins.
+#
+# MAX ATTEMPTS (data byte 6) is only drawn, never enforced (0x0020AFBC,
+# 0x0020B870); 100 or more draws N/A, which is the truth -- the server takes
+# any number of rounds and keeps the best.
+MAX_ATTEMPTS_OFFSET = 6
+NO_ATTEMPT_LIMIT = 100
 INVITATION_FLAG = (4, 1 << 11)       # (data byte of the word, bit) -- unconfirmed
 
 
-def conditions_word(conditions):
-    """{'tees': 'White', 'greens': 'Fast', ...} -> the u32 for data byte 8.
-    Anything not named is the default; an unknown value is an error, because
-    a typo would otherwise quietly become the default."""
+def conditions_word(conditions, offset=CONDITIONS_OFFSET):
+    """{'tees': 'White', 'greens': 'Fast', ...} -> the u32 for data byte
+    `offset`: 12 for the course conditions, RULES_OFFSET (8) for attributes
+    and difficulty.  Anything not named is the default; an unknown value is
+    an error, because a typo would otherwise quietly become the default."""
     word = 0
     for setting, value in (conditions or {}).items():
-        word |= CONDITIONS[setting][value]
+        bit = CONDITIONS[setting][value]
+        if SETTING_OFFSETS.get(setting, CONDITIONS_OFFSET) == offset:
+            word |= bit
     return word
 
 
 # The settings an Online Tournament event varies.  Holes is not one of them:
 # a tournament round is always All 18 (the default, no flag), so its flags are
-# documented above but never set.
-EVENT_SETTINGS = ('tees', 'rough', 'fairways', 'greens')
+# documented above but never set.  Attributes and difficulty come last, so the
+# draws for the first four (event_conditions) are the ones they always were.
+EVENT_SETTINGS = ('tees', 'rough', 'fairways', 'greens', 'attributes',
+                  'difficulty')
 
 # What each option does to an event's purse, on top of its course purse.
 # Agreed with the operator; the harder the setting, the bigger the prize.  The
@@ -708,11 +746,25 @@ PURSE_MULTIPLIERS = {
     'rough':    {'Short': 0.95, 'Average': 1.00, 'Long': 1.10},
     'fairways': {'Slow': 0.97, 'Medium': 1.00, 'Fast': 1.05},
     'greens':   {'Slow': 0.95, 'Medium': 1.00, 'Fast': 1.10},
+    # Lower ratings make every shot harder, so they pay more; a player's own
+    # golfer is as good as they have made it, so it pays as All 100's does.
+    'attributes': {"All 100's": 1.00, 'Own': 1.00, "All 90's": 1.02,
+                   "All 80's": 1.05, "All 70's": 1.08, "All 60's": 1.12,
+                   "All 50's": 1.15},
+    'difficulty': {'Default': 1.00, 'Tour': 1.10},
 }
 # How often an event keeps each setting's default; the rest is split evenly
 # between the other options.  Half and half keeps most days recognisable while
 # still giving a hard day now and then.
 CONDITION_DEFAULT_CHANCE = 0.5
+# Settings drawn by weight instead.  Most events stay a level field (All
+# 100's) on Default; the low ratings are rare, so an All 50's day is an
+# occasion rather than a chore.
+CONDITION_WEIGHTS = {
+    'attributes': {"All 100's": 50, 'Own': 20, "All 90's": 10, "All 80's": 10,
+                   "All 70's": 5, "All 60's": 3, "All 50's": 2},
+    'difficulty': {'Default': 70, 'Tour': 30},
+}
 
 
 def event_conditions(day):
@@ -723,6 +775,11 @@ def event_conditions(day):
     rng = random.Random('TW04 conditions %d' % day)
     out = {}
     for setting in EVENT_SETTINGS:
+        if setting in CONDITION_WEIGHTS:
+            weights = CONDITION_WEIGHTS[setting]
+            options = list(weights)
+            out[setting] = rng.choices(options, [weights[o] for o in options])[0]
+            continue
         default = DEFAULT_CONDITIONS[setting]
         others = sorted(o for o in CONDITIONS[setting] if o != default)
         out[setting] = (default if rng.random() < CONDITION_DEFAULT_CHANCE
@@ -747,7 +804,8 @@ def event_purse(course, conditions=None):
 
 
 SETTING_LABELS = {'tees': 'Tees', 'rough': 'Rough', 'fairways': 'Fairways',
-                  'greens': 'Greens'}
+                  'greens': 'Greens', 'attributes': 'Attributes',
+                  'difficulty': 'Difficulty'}
 
 
 def condition_items(conditions):
@@ -763,7 +821,8 @@ def describe_conditions(conditions):
     """For people: the settings that differ from the game's defaults, or
     'Standard conditions'.  'Long rough, fast greens'."""
     words = {'tees': '%s tees', 'rough': '%s rough', 'fairways': '%s fairways',
-             'greens': '%s greens'}
+             'greens': '%s greens', 'attributes': '%s attributes',
+             'difficulty': '%s difficulty'}
     parts = [words[s] % o.lower()
              for s, o in full_conditions(conditions).items()
              if o != DEFAULT_CONDITIONS[s]]
@@ -881,20 +940,24 @@ def course_code(code):
 # value)]) where kind is 'or32' (OR into a u32) or 'u8'.  Every day is on
 # Pebble Beach so the course line has something to show.
 SETTING_TESTS = (
-    ('TEES 0x10', [(12, 'or32', 0x10)]),
-    ('TEES 0x20', [(12, 'or32', 0x20)]),
-    ('ROUGH 0x4000', [(12, 'or32', 0x4000)]),
-    ('ROUGH 0x10000', [(12, 'or32', 0x10000)]),
-    ('FWY 0x40000', [(12, 'or32', 0x40000)]),
-    ('GREENS 0x2000', [(12, 'or32', 0x2000)]),
-    ('GOLFER 42', [(7, 'u8', 42)]),
-    ('GOLFER 43', [(7, 'u8', 43)]),
-    ('TP ON', [(TP_OFFSET, 'u8', 1)]),
-    ('ATTR 0x40000', [(8, 'or32', 0x40000)]),
-    ('ATTR 0x400000', [(8, 'or32', 0x400000)]),
-    ('DIFF 0x8000', [(8, 'or32', 0x8000)]),
-    ('DIFF 0x10000', [(8, 'or32', 0x10000)]),
+    # data 8, 0x001D6990 (event row 1): 0x8000 -> 1, 0x10000 -> 2, else 0
+    ('D8 0x8000', [(8, 'or32', 0x8000)]),
+    ('D8 0x10000', [(8, 'or32', 0x10000)]),
+    # data 8, 0x001D6B78 (event row 8): 0x20000..0x400000 -> 0..5, else 6
+    ('D8 0x20000', [(8, 'or32', 0x20000)]),
+    ('D8 0x40000', [(8, 'or32', 0x40000)]),
+    ('D8 0x80000', [(8, 'or32', 0x80000)]),
+    ('D8 0x100000', [(8, 'or32', 0x100000)]),
+    ('D8 0x200000', [(8, 'or32', 0x200000)]),
+    ('D8 0x400000', [(8, 'or32', 0x400000)]),
+    # data 12, 0x001D6A00 (event row 2): 0x100 -> 1, 0x200 -> 2, 0x400 -> 3
+    ('D12 0x100', [(12, 'or32', 0x100)]),
+    ('D12 0x200', [(12, 'or32', 0x200)]),
+    ('D12 0x400', [(12, 'or32', 0x400)]),
+    # data 8 bit 11, 0x001D6FE0, read by the calendar's day callback
+    ('D8 0x800', [(8, 'or32', 0x800)]),
     ('MAXATT 3', [(6, 'u8', 3)]),
+    ('GOLFER 42', [(7, 'u8', 42)]),
 )
 
 
@@ -1092,11 +1155,14 @@ def main():
         # "invitation only" flag, which turns on a password prompt.  Bytes
         # 8..11 are the conditions word (CONDITIONS) and may carry ONLY the
         # flags in CONDITIONS -- never one of the three unnamed settings.
-        # TW05: purse 0-3, forced golfer 7, conditions 12-15, day 16-17,
-        # course code 20-23 and the headline text 28-59.
+        # TW05: purse 0-3, max attempts 6, forced golfer 7, attributes and
+        # difficulty 8-11, conditions 12-15, day 16-17, course code 20-23 and
+        # the headline text 28-59.
         spare = [k for k in range(DATA_BYTES)
-                 if k not in (0, 1, 2, 3, FORCED_GOLFER_OFFSET, DAY_OFFSET,
+                 if k not in (0, 1, 2, 3, MAX_ATTEMPTS_OFFSET,
+                              FORCED_GOLFER_OFFSET, DAY_OFFSET,
                               DAY_OFFSET + 1, ICON_OFFSET_TW05)
+                 and not RULES_OFFSET <= k < RULES_OFFSET + 4
                  and not CONDITIONS_OFFSET <= k < CONDITIONS_OFFSET + 4
                  and not COURSE_CODE_OFFSET <= k < COURSE_CODE_OFFSET + 4
                  and not TEXT_OFFSET <= k < TEXT_OFFSET + TEXT_BYTES
@@ -1104,10 +1170,19 @@ def main():
         if spare:
             fails.append('entry %d set unknown bytes %s' % (i, spare))
         known = 0
-        for flags in CONDITIONS.values():
-            for bit in flags.values():
-                known |= bit
+        for setting, flags in CONDITIONS.items():
+            if setting not in SETTING_OFFSETS:
+                for bit in flags.values():
+                    known |= bit
         word = struct.unpack_from('<I', data, CONDITIONS_OFFSET)[0]
+        rules = struct.unpack_from('<I', data, RULES_OFFSET)[0]
+        if rules != conditions_word(full_conditions(ev['conditions']),
+                                    RULES_OFFSET) or not rules:
+            fails.append('entry %d: attributes and difficulty did not reach '
+                         'data 8 (0x%08x)' % (i, rules))
+        if data[MAX_ATTEMPTS_OFFSET] < 100:
+            fails.append('entry %d draws a max attempts the server does not '
+                         'enforce' % i)
         if word & ~known:
             fails.append('entry %d set condition bits nothing names: 0x%08x'
                          % (i, word & ~known))
@@ -1147,6 +1222,14 @@ def main():
         if conditions_word({setting: option}) != bit:
             fails.append('%s %s must be 0x%x, as the screen drew'
                          % (setting, option, bit))
+    for setting, option, bit in (('attributes', "All 50's", 0x40000),
+                                 ('attributes', 'Own', 0x20000),
+                                 ('difficulty', 'Default', 0x8000),
+                                 ('difficulty', 'Tour', 0x10000)):
+        if conditions_word({setting: option}, RULES_OFFSET) != bit or \
+                conditions_word({setting: option}):
+            fails.append('%s %s must be 0x%x in the data-8 word only, as the '
+                         'screen drew' % (setting, option, bit))
     try:
         conditions_word({'tees': 'Red'})
         fails.append('an option the client cannot reach must be refused')
@@ -1203,6 +1286,13 @@ def main():
     if not 0.4 < share < 0.6:
         fails.append('a setting should keep its default about half the time, '
                      'got %.2f' % share)
+    for setting, weights in CONDITION_WEIGHTS.items():
+        total = float(sum(weights.values()))
+        for option, weight in weights.items():
+            share = sum(1 for c in days if c[setting] == option) / float(len(days))
+            if abs(share - weight / total) > 0.08:
+                fails.append('%s %s drawn %.2f of days, weighted %.2f'
+                             % (setting, option, share, weight / total))
     print('conditions: e.g. %s -> $%s'
           % (describe_conditions(events[0]['conditions']),
              format(events[0]['purse'], ',')))
