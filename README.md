@@ -21,7 +21,7 @@ It brings back the game's online menus:
 - **Online cash:** every golfer starts with the same balance, tournament
   prize money adds to it, and head-to-head games can be played for a wager.
 - **MY RESUME:** your records and statistics on the in-game screen.
-- **EA Messenger:** buddy lists, who's online, and messages between players.
+- **EA Messenger:** player search, friend requests, buddy lists, who's online, and messages between players.
 - **In-game news:** your own text, plus a digest the server writes from
   recent results.
 - **Report abuse:** reports are stored with the chat that led up to them.
@@ -455,6 +455,7 @@ drives it the way the game does:
 ```bash
 python3 tests/tourney_test.py    # date, season, calendar, a round played and reported
 python3 tests/games_test.py      # game adverts, joining, all four modes, wagers and cash
+python3 tests/messenger_test.py  # EA Messenger: search, friend requests, buddies, messages
 python3 tests/webui_test.py      # every page, the patch and cheat files, cash on the site
 ```
 

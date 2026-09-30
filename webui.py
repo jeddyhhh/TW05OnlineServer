@@ -2964,14 +2964,18 @@ try them &mdash; working or not &mdash; please report what happened on
                     '<p class="sub" style="margin:.8rem 0 0">No chat from them '
                     'was relayed in the hour before this report.</p>')
             cards.append(
-                '<div class="card"><h2>#%d &middot; %s</h2>'
+                '<div class="card"><h2>#%d &middot; %s%s</h2>'
                 '<p style="margin:0">%s reported by <strong>%s</strong>%s'
                 ' &middot; %d report%s name them</p>%s'
                 '<form method="post" action="%s" class="inline">'
                 '<input type="hidden" name="id" value="%d">'
                 '<button type="submit" style="margin-top:1rem">Mark handled'
                 '</button></form></div>'
-                % (r['id'], when(r['at']), who(r), html.escape(r['reporter']),
+                % (r['id'], when(r['at']),
+                   (' &middot; %s' % html.escape(
+                       twdb.FEEDBACK_KINDS.get(r['kind'], r['kind'])))
+                   if r.get('kind') else '',
+                   who(r), html.escape(r['reporter']),
                    (' in %s' % html.escape(r['room'])) if r['room'] else '',
                    r['against'], '' if r['against'] == 1 else 's', chat,
                    action, r['id']))

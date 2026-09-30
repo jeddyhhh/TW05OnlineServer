@@ -60,6 +60,20 @@ _ROOT = os.path.dirname(_HERE) if os.path.basename(_HERE) == 'tools' else _HERE
 DEFAULT_DB = os.path.join(_ROOT, 'data', 'tw05.db')
 
 MAX_PERSONAS = 4          # four 32-byte slots at 0x002875E8
+
+# TW05's FEEDBACK screen (EA Messenger, and after a match) sends `rept` with a
+# TYPE (0x001C43FC).  Two are compliments, kept as feedback; the rest are
+# complaints, kept as abuse reports for the operator.  In the game's order.
+FEEDBACK_KINDS = {
+    'honest': 'Good attitude',
+    'goodsession': 'Great session',
+    'badname': 'Bad name',
+    'cheating': 'Cheating',
+    'screaming': 'Screaming',
+    'harassment': 'Threats/harassment',
+    'language': 'Cursing/lewdness',
+}
+PRAISE = ('honest', 'goodsession')
 MAX_NAME = 31             # 32-byte field, NUL terminated
 MIN_PASSWORD = 4          # "Passwords should be 4-16 characters long."
 MAX_PASSWORD = 16         # -- 0x00312BF0, the client's own validation
@@ -260,9 +274,21 @@ CREATE TABLE IF NOT EXISTS reports (
     accused  TEXT NOT NULL,
     room     TEXT NOT NULL DEFAULT '',
     chat     TEXT NOT NULL DEFAULT '[]',
-    handled  REAL
+    handled  REAL,
+    kind     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS reports_accused ON reports(accused);
+
+-- TW05 compliments (FEEDBACK_KINDS in PRAISE): one of each kind per giver per
+-- player, the latest kept, so pressing it ten times counts once.
+CREATE TABLE IF NOT EXISTS feedback (
+    giver  TEXT NOT NULL COLLATE NOCASE,
+    player TEXT NOT NULL COLLATE NOCASE,
+    kind   TEXT NOT NULL,
+    at     REAL NOT NULL,
+    PRIMARY KEY (giver, player, kind)
+);
+CREATE INDEX IF NOT EXISTS feedback_player ON feedback(player);
 
 -- One-line facts the server keeps current: its heartbeat, its uptime, the
 -- rooms it is offering.  A key/value table rather than columns because what is
@@ -406,6 +432,9 @@ class DB:
         # option}.  '' reads as the game's defaults, which is exactly what
         # every event stored before this column existed was played on.
         ('events', 'conditions', "TEXT NOT NULL DEFAULT ''"),
+        # TW05's FEEDBACK type (FEEDBACK_KINDS); '' for TW04's REPORT ABUSE,
+        # which has none.
+        ('reports', 'kind', "TEXT NOT NULL DEFAULT ''"),
     ]
 
     def _migrate(self):
@@ -593,12 +622,24 @@ class DB:
             self.run('DELETE FROM lkeys WHERE key = ?', (key,))
 
     # -- abuse reports -----------------------------------------------------
-    def add_report(self, reporter, accused, room='', chat=()):
-        cur = self.run('INSERT INTO reports (at, reporter, accused, room, chat)'
-                       ' VALUES (?, ?, ?, ?, ?)',
+    def add_report(self, reporter, accused, room='', chat=(), kind=''):
+        cur = self.run('INSERT INTO reports (at, reporter, accused, room, chat,'
+                       ' kind) VALUES (?, ?, ?, ?, ?, ?)',
                        (time.time(), reporter, accused, room or '',
-                        json.dumps(list(chat))))
+                        json.dumps(list(chat)), kind or ''))
         return cur.lastrowid
+
+    def add_feedback(self, giver, player, kind):
+        self.run('INSERT INTO feedback (giver, player, kind, at)'
+                 ' VALUES (?, ?, ?, ?) ON CONFLICT (giver, player, kind)'
+                 ' DO UPDATE SET at = excluded.at',
+                 (giver, player, kind, time.time()))
+
+    def feedback_for(self, player):
+        """{kind: how many players gave it} for `player`."""
+        return {r['kind']: r['n'] for r in self.query(
+            'SELECT kind, COUNT(*) AS n FROM feedback WHERE player = ?'
+            ' GROUP BY kind', (player,))}
 
     def reports(self, handled=False, limit=100):
         """Open reports (or handled ones), newest first, each with the
@@ -677,6 +718,52 @@ class DB:
             ' JOIN personas o ON o.id = l.owner_id'
             ' JOIN personas b ON b.id = l.buddy_id'
             " WHERE b.name = ? AND l.list = 'B'", (buddy,))]
+
+    # TW05 friend requests are kept as a third list, 'P': owner has asked
+    # buddy and is waiting for an answer.  buddy_list(owner, 'P') is what
+    # owner has sent; requests_to(buddy) what buddy has been sent.
+
+    def requests_to(self, persona):
+        """[(name, group)] of everyone waiting for `persona` to answer."""
+        return [(r['name'], r['grp']) for r in self.query(
+            'SELECT o.name, l.grp FROM buddies l'
+            ' JOIN personas o ON o.id = l.owner_id'
+            ' JOIN personas b ON b.id = l.buddy_id'
+            " WHERE b.name = ? AND l.list = 'P' ORDER BY l.added, o.name",
+            (persona,))]
+
+    def on_list(self, owner, other, list_='B'):
+        return bool(self.one(
+            'SELECT 1 FROM buddies l'
+            ' JOIN personas o ON o.id = l.owner_id'
+            ' JOIN personas b ON b.id = l.buddy_id'
+            ' WHERE o.name = ? AND b.name = ? AND l.list = ?',
+            (owner, other, list_)))
+
+    def find_personas(self, text, limit=20, viewer=None):
+        """Personas whose name contains `text`, ignoring case: an exact match
+        first, then names starting with it, then the rest, each A to Z -- the
+        EA Messenger user search (TW05 `USCH`).  `viewer` itself, and anyone
+        who has blocked `viewer`, is left out."""
+        text = (text or '').strip()
+        if not text:
+            return []
+        like = text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        rows = self.query(
+            "SELECT name FROM personas WHERE name LIKE ? ESCAPE '\\'"
+            ' ORDER BY (name = ?) DESC, (name LIKE ? ESCAPE \'\\\') DESC,'
+            ' name COLLATE NOCASE',
+            ('%' + like + '%', text, like + '%'))
+        out = []
+        for r in rows:
+            name = r['name']
+            if viewer and (name.lower() == viewer.lower()
+                           or self.blocks(name, viewer)):
+                continue
+            out.append(name)
+            if len(out) >= limit:
+                break
+        return out
 
     def blocks(self, owner, other):
         """True when `owner` has `other` on their ignore list."""

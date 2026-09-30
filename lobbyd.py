@@ -1834,16 +1834,21 @@ class Handler(socketserver.BaseRequestHandler):
         ONLINE RANK / ONLINE POINTS lines on the profile screen.
         """
         who = tags.get('PERS') or self.persona or ''
-        rank, _points = self.standing(who)
-        _played, won, lost, tied = DB.record(who) if who else (0, 0, 0, 0)
-        # `R` is the rank and `P` is the PING -- 0x0028A214 and 0x0028A254 feed
-        # them to the RANK and PNG tags of the challenge blob.  Online points
-        # are not here at all; they are statistic 1 inside `S`.
-        blob = self.stat_record(who) if who else twstats05.record()
-        log('***', '    %s standing: rank=%d record=%d-%d-%d, S is %d bytes'
-            % (who or '?', rank, won, lost, tied, len(blob)))
-        self.send('onln', ident, {'~~': 'OK', 'S': blob.decode('latin-1'),
-                                  'R': str(rank), 'P': '0'})
+        found = DB.persona(who) if who else None
+        if not found:
+            log('!!!', '    onln for %r: no such player' % who)
+            return self.send('onln', cc2i('user'), {})
+        who = found['name']
+        # TW05's VIEW RESUME (Messenger) asks through 0x0032E5B0: its callback
+        # (0x0032E3C0) drops a reply whose `N` is not the name it asked for --
+        # the TW04 reply had no N and the screen waited for ever -- and then
+        # parses it as a user record (0x0032E010), the same one `+who` sends.
+        # `R` is the rank and `P` the ping to TW04's reader (0x0028A214,
+        # 0x0028A254); online points are statistic 1 inside `S`.
+        record = dict(self.user_record(who), P='0')
+        log('***', '    onln %s: rank=%s, S is %d bytes, REP %s'
+            % (who, record['R'], len(record['S']), record['RP']))
+        self.send('onln', ident, dict({'~~': 'OK'}, **record))
 
     # `cusr` is a generic "run a server command" envelope; CMD names the command.
     # Replies below are guesses except where a reader is known.
@@ -2653,6 +2658,22 @@ class Handler(socketserver.BaseRequestHandler):
         """The personas actually in `room`, per the `move` requests seen."""
         return sorted(p for p, r in WHERE.items() if r == room)
 
+    def user_record(self, who):
+        """The user-record tags TW05 parses with 0x003299C0 -- for `+who`
+        (the console's own) and the `onln` reply (anyone's)."""
+        rank, _points = self.standing(who)
+        if probe_settings().get('R'):
+            rank = _ints(probe_settings()['R'])[0]
+        addr, _port = peer_address(who)
+        return {
+            'I': '0', 'N': who, 'P': 'good', 'A': addr or '0.0.0.0',
+            'R': str(rank), 'S': self.stat_record(who).decode('latin-1'),
+            # REP on MY RESUME: the user record's `RP` (0x00329CB0 stores it
+            # at +0x210; 0x001C6210 reads it for the screen).  Probed live
+            # 2026-09-30: RP=501 drew REP 501.
+            'RP': str(reputation(who)),
+        }
+
     def push_who(self):
         """`+who`: the player's OWN user record (TW05).  Its handler parses it
         into api+0x1558 with the same user-record parser as `+usr`
@@ -2663,18 +2684,7 @@ class Handler(socketserver.BaseRequestHandler):
         who = self.persona
         if not who:
             return
-        rank, _points = self.standing(who)
-        if probe_settings().get('R'):
-            rank = _ints(probe_settings()['R'])[0]
-        addr, _port = peer_address(who)
-        tags = {
-            'I': '0', 'N': who, 'P': 'good', 'A': addr or '0.0.0.0',
-            'R': str(rank), 'S': self.stat_record(who).decode('latin-1'),
-            # REP on MY RESUME: the user record's `RP` (0x00329CB0 stores it
-            # at +0x210; 0x001C6210 reads it for the screen).  Probed live
-            # 2026-09-30: RP=501 drew REP 501.
-            'RP': str(reputation(who)),
-        }
+        tags = self.user_record(who)
         # Probe: more tags for the record, "who = REP=501 LEVEL=502".  The
         # parser behind +who (0x0032E010) reads PERS STAT ATTR RGB LEVEL
         # MEDALS WTIER WINDEX RANK REP on top of the usual I N P A R S.
@@ -2981,6 +2991,11 @@ class Handler(socketserver.BaseRequestHandler):
         callback, so the reply is never read and the game shows its own "you
         have reported abuse from %s" regardless.
 
+        TW05's FEEDBACK screen sends the same verb with a `TYPE`
+        (0x001C43FC; twdb.FEEDBACK_KINDS): the two compliments are kept as
+        feedback, not reports -- "Good attitude" filed as abuse would be
+        wrong -- and the rest are reports that say what they are about.
+
         Stored with the chat this server relayed (`chat_for_report`) for the
         operator's reports page on the web site.  The reporter is the persona
         this CONNECTION signed in as -- never a field the console fills in.
@@ -2993,6 +3008,16 @@ class Handler(socketserver.BaseRequestHandler):
             return
         if accused.lower() == self.persona.lower():
             return
+        kind = tags.get('TYPE', '').strip().lower()
+        if kind not in twdb.FEEDBACK_KINDS:
+            kind = ''
+        found = DB.persona(accused)
+        if kind in twdb.PRAISE:
+            if found:
+                DB.add_feedback(self.persona, found['name'], kind)
+                log('***', '    FEEDBACK: %s says %s: %s'
+                    % (self.persona, found['name'], twdb.FEEDBACK_KINDS[kind]))
+            return
         now = time.time()
         key = (self.persona.lower(), accused.lower())
         if now - REPORTED.get(key, 0) < REPORT_REPEAT:
@@ -3003,14 +3028,15 @@ class Handler(socketserver.BaseRequestHandler):
         chat = chat_for_report(self.persona, accused, now)
         room = WHERE.get(self.persona, '')
         try:
-            rid = DB.add_report(self.persona, accused, room, chat)
+            rid = DB.add_report(self.persona, accused, room, chat, kind)
         except Exception as exc:                        # noqa: BLE001
             log('!!!', '    could not store the report: %s' % exc)
             return
         # Deliberately NOT `note()`: the activity feed is public on /live.
-        log('***', '    REPORT #%d: %s reported %s%s, %d line(s) of chat attached'
-            % (rid, self.persona, accused, ' in %s' % room if room else '',
-               len(chat)))
+        log('***', '    REPORT #%d: %s reported %s%s%s, %d line(s) of chat attached'
+            % (rid, self.persona, accused,
+               ' for %s' % twdb.FEEDBACK_KINDS[kind] if kind else '',
+               ' in %s' % room if room else '', len(chat)))
 
     def on_rank(self, ident, tags):
         """Lobby_SendTwoPlayerResults. _SendResultsCallback reads TITLE, MESG.
@@ -3172,6 +3198,14 @@ class BuddyHandler(Handler):
                    'success' % name)
         self.send(name, 0, {'ID': tags['ID']} if 'ID' in tags else {})
 
+    @staticmethod
+    def user_of(tags):
+        """The persona a request's `USER` names.  TW05 addresses a message
+        as `name/resource` (captured: `USER=JeddyH/CSO`), the full form being
+        `name@domain/resource`; its own parser (0x00335800) splits those, and
+        a persona name has neither character, so both are cut off here."""
+        return tags.get('USER', '').split('/', 1)[0].split('@', 1)[0]
+
     def refuse(self, verb, code, tags, why):
         log('!!!', '    EA Messenger %s refused (%s): %s' % (verb, code, why))
         self.send(verb, cc2i(code), {'ID': tags['ID']} if 'ID' in tags else {})
@@ -3267,18 +3301,32 @@ class BuddyHandler(Handler):
         blocked) and for list 2 the client counts `SIZE` down to know when the
         roster is complete.  With `PRES=Y` the presence of every buddy follows,
         as `PGET` -- after the ROSTs, because the parser drops a PGET for
-        anyone not already on the roster (0x002C4074)."""
+        anyone not already on the roster (0x002C4074).
+
+        TW05 adds `PEND=Y` to the buddy list: friend requests come too, as
+        ROSTs whose `ATTR` says which way -- S sent, R received (see
+        FRIEND REQUESTS below)."""
         if not self.persona:
             return self.refuse('RGET', self.ERR_AUTH, tags, 'not signed in')
         list_ = tags.get('LIST', 'B')
         rid = tags.get('ID', '0')
         rows = DB.buddy_list(self.persona, list_)
+        pending = []
+        if list_ == 'B' and tags.get('PEND') == 'Y':
+            pending = ([(n, g, self.SENT) for n, g in DB.buddy_list(self.persona, 'P')]
+                       + [(n, g, self.RECEIVED)
+                          for n, g in DB.requests_to(self.persona)])
         log('***', '    EA Messenger: %s list %r -> %d: %s'
-            % (self.persona, list_, len(rows),
-               ', '.join(n for n, _ in rows) or '(empty)'))
-        self.send('RGET', 0, {'ID': rid, 'SIZE': str(len(rows))})
+            % (self.persona, list_, len(rows) + len(pending),
+               ', '.join([n for n, _ in rows]
+                         + ['%s (%s)' % (n, a) for n, _, a in pending])
+               or '(empty)'))
+        self.send('RGET', 0, {'ID': rid, 'SIZE': str(len(rows) + len(pending))})
         for name, group in rows:
             self.send('ROST', 0, {'ID': rid, 'USER': name, 'GROUP': group})
+        for name, group, attr in pending:
+            self.send('ROST', 0, {'ID': rid, 'USER': name, 'GROUP': group,
+                                  'ATTR': attr})
         if list_ == 'B' and tags.get('PRES') == 'Y':
             for name, _ in rows:
                 if name in MESSENGER:
@@ -3296,7 +3344,7 @@ class BuddyHandler(Handler):
             return self.refuse('RADD', self.ERR_AUTH, tags, 'not signed in')
         list_ = tags.get('LIST', 'B')
         try:
-            name = DB.add_buddy(self.persona, tags.get('USER', ''), list_,
+            name = DB.add_buddy(self.persona, self.user_of(tags), list_,
                                 tags.get('GROUP', ''))
         except twdb.Error as exc:
             return self.refuse('RADD', self.ERR_USER, tags, exc)
@@ -3314,19 +3362,218 @@ class BuddyHandler(Handler):
     def bd_rdel(self, ident, tags):
         """`RDEL` -- the same shapes as `RADD`, to take someone off a list.
         The reply is matched by `ID` against the one pending delete
-        (0x002C4384)."""
+        (0x002C4384).
+
+        A TW05 buddy is mutual (it came from an accepted request), so taking
+        one off takes you off theirs too, and their roster is told
+        (`RNOT CHNG=D`).  Pending requests either way go with it."""
         if not self.persona:
             return self.refuse('RDEL', self.ERR_AUTH, tags, 'not signed in')
         list_ = tags.get('LIST', 'B')
-        name = tags.get('USER', '')
+        name = self.user_of(tags)
+        other = DB.persona(name)
+        name = other['name'] if other else name
         DB.drop_buddy(self.persona, name, list_)
+        mutual = False
+        if list_ == 'B' and other:
+            mutual = DB.on_list(name, self.persona, 'B')
+            DB.drop_buddy(name, self.persona, 'B')
+            DB.drop_buddy(self.persona, name, 'P')
+            DB.drop_buddy(name, self.persona, 'P')
         log('***', '    EA Messenger: %s %s %s'
             % (self.persona, 'unblocked' if list_ == 'I' else 'removed', name))
         self.send('RDEL', 0, {'ID': tags.get('ID', '0')})
+        if mutual:
+            self.notify(name, self.persona, 'D')
         if list_ == 'I':
             conn = MESSENGER.get(name)
             if conn and self.persona in [n for n, _ in DB.buddy_list(name)]:
                 conn.tell(self.persona)
+
+    # ---- TW05: friend requests -------------------------------------------
+    #
+    # TW05 adds a buddy by asking (0x003377F8): the roster entry is flagged
+    # "sent" and the console sends `RADM` instead of TW04's `RADD`.  The
+    # other console answers with `RRSP ANSW=Y|N|B` (0x00338E40: accept,
+    # decline, decline and block) and the asker can withdraw with `RDEM`.
+    #
+    # Rosters learn about each other through `ATTR`, a string of letters
+    # each setting one bit (0x0032D210, table 0x00378748; 0x003354F0 keeps
+    # three): S = I asked them, R = they asked me, T = not known.  It comes on
+    # a ROST, or pushed as `RNOT USER CHNG ATTR` (0x00336B90):
+    #
+    #   CHNG=D   take the entry off the roster
+    #   CHNG=A   add it, or update it; an entry that was S or R whose new ATTR
+    #            no longer says so becomes a buddy -- how an accept arrives
+    SENT, RECEIVED = 'S', 'R'
+
+    def notify(self, persona, about, chng, attr=''):
+        """Push `RNOT` to `persona`'s console, if it is on Messenger."""
+        conn = MESSENGER.get(persona)
+        if not conn:
+            return
+        try:
+            conn.send('RNOT', 0, {'USER': about, 'CHNG': chng, 'ATTR': attr})
+        except OSError:
+            pass
+
+    # Each handler below changes the database first, then answers, then tells
+    # the other console -- so anything asked after the answer sees the change.
+
+    def link(self, a, b):
+        """a and b are buddies both ways now; any request between them goes."""
+        for owner, buddy in ((a, b), (b, a)):
+            DB.drop_buddy(owner, buddy, 'P')
+            try:
+                DB.add_buddy(owner, buddy, 'B')
+            except twdb.Error as exc:
+                log('!!!', '    EA Messenger: %s could not take %s: %s'
+                    % (owner, buddy, exc))
+        log('***', '    EA Messenger: %s and %s are buddies' % (a, b))
+
+    def tell_link(self, a, b):
+        """Both rosters hear of a new link, and each console the other's
+        presence."""
+        for owner, buddy in ((a, b), (b, a)):
+            self.notify(owner, buddy, 'A')
+            conn = MESSENGER.get(owner)
+            if conn and buddy in MESSENGER:
+                conn.tell(buddy)
+
+    def bd_radm(self, ident, tags):
+        """`RADM LRSC USER ID PRES` -- ask `USER` to be a buddy:
+
+            RADM LRSC=CSO USER=JeddyB ID=104 PRES=Y
+
+        The reply goes through the same code as RADD's (0x00338808): `ID`
+        and `FUSR` back.  An error of 'blck' is taken as success, so someone
+        who has blocked the asker gets no request and the asker never
+        knows.  If they had already asked the asker, this is a yes."""
+        if not self.persona:
+            return self.refuse('RADM', self.ERR_AUTH, tags, 'not signed in')
+        rid = tags.get('ID', '0')
+        other = DB.persona(self.user_of(tags))
+        if not other or other['name'].lower() == self.persona.lower():
+            return self.refuse('RADM', self.ERR_USER, tags,
+                               'no such player %r' % self.user_of(tags))
+        name = other['name']
+        if DB.blocks(name, self.persona):
+            log('***', '    EA Messenger: %s asked %s, who blocks them -- '
+                       'dropped' % (self.persona, name))
+            return self.send('RADM', cc2i('blck'), {'ID': rid, 'FUSR': name})
+        mutual = DB.on_list(name, self.persona, 'P') or (
+            DB.on_list(self.persona, name, 'B')
+            and DB.on_list(name, self.persona, 'B'))
+        if mutual:
+            self.link(self.persona, name)
+        else:
+            try:
+                DB.add_buddy(self.persona, name, 'P', tags.get('GROUP', ''))
+            except twdb.Error as exc:
+                return self.refuse('RADM', 'full', tags,
+                                   'request %s -> %s not kept: %s'
+                                   % (self.persona, name, exc))
+            log('***', '    EA Messenger: %s asked %s to be a buddy'
+                % (self.persona, name))
+        self.send('RADM', 0, {'ID': rid, 'FUSR': name})
+        if mutual:
+            self.tell_link(self.persona, name)
+        else:
+            self.notify(name, self.persona, 'A', self.RECEIVED)
+
+    def bd_rrsp(self, ident, tags):
+        """`RRSP LRSC ID USER ANSW` -- the answer to `USER`'s request:
+        Y accept, N decline, B decline and block (0x00338E40).  The answering
+        console updates its own roster; the asker is told with `RNOT`."""
+        if not self.persona:
+            return self.refuse('RRSP', self.ERR_AUTH, tags, 'not signed in')
+        rid = tags.get('ID', '0')
+        other = DB.persona(self.user_of(tags))
+        answer = tags.get('ANSW', '').upper()
+        name = other['name'] if other else None
+        asked = bool(other) and DB.on_list(name, self.persona, 'P')
+        if asked and answer == 'Y':
+            self.link(name, self.persona)
+        elif other and answer == 'Y':
+            log('!!!', '    EA Messenger: %s accepted %s, who had not asked'
+                % (self.persona, name))
+        elif other:
+            DB.drop_buddy(name, self.persona, 'P')
+            if answer == 'B':
+                try:
+                    DB.add_buddy(self.persona, name, 'I')
+                except twdb.Error as exc:
+                    log('!!!', '    EA Messenger: block not kept: %s' % exc)
+            log('***', '    EA Messenger: %s %s %s'
+                % (self.persona, 'blocked' if answer == 'B' else 'declined',
+                   name))
+        self.send('RRSP', 0, {'ID': rid})
+        if asked:
+            if answer == 'Y':
+                self.tell_link(name, self.persona)
+            else:
+                self.notify(name, self.persona, 'D')
+
+    def bd_rdem(self, ident, tags):
+        """`RDEM LRSC ID USER` -- withdraw my request to `USER` (0x00338E40
+        with nothing to answer).  Their roster loses it."""
+        if not self.persona:
+            return self.refuse('RDEM', self.ERR_AUTH, tags, 'not signed in')
+        other = DB.persona(self.user_of(tags))
+        name = other['name'] if other else None
+        asked = bool(other) and DB.on_list(self.persona, name, 'P')
+        if asked:
+            DB.drop_buddy(self.persona, name, 'P')
+            log('***', '    EA Messenger: %s withdrew their request to %s'
+                % (self.persona, name))
+        self.send('RDEM', 0, {'ID': tags.get('ID', '0')})
+        if asked:
+            self.notify(name, self.persona, 'D')
+
+    # ---- TW05: user search and account settings -------------------------
+
+    # TW05 keeps at most 20 search results (0x9CC, 0x27 bytes each), and the
+    # request asks for MAXR=20 anyway.
+    SEARCH_MAX = 20
+
+    def bd_usch(self, ident, tags):
+        """`USCH ID RSRC USER MAXR` -- TW05's user search (0x00337E08):
+
+            USCH ID=3 RSRC=CSO USER=JeddyB MAXR=20
+
+        The reply handler (0x00338C60) wants ID=3 back and, on success, `SIZE`,
+        the number of `USER` frames to follow; each of those carries the same
+        ID, `USER` (cut at '@', '/' or '.', 16 characters kept) and `RSRC`
+        (0x00336D68).  When SIZE have arrived -- at once for SIZE=0 -- the game
+        lists them (0x001BA100), and the player asks one to be a buddy with
+        `RADM`.  Before this was answered, every search came back empty."""
+        if not self.persona:
+            return self.refuse('USCH', self.ERR_AUTH, tags, 'not signed in')
+        rid = tags.get('ID', '3')
+        try:
+            limit = max(1, min(int(tags.get('MAXR', self.SEARCH_MAX)),
+                               self.SEARCH_MAX))
+        except ValueError:
+            limit = self.SEARCH_MAX
+        found = DB.find_personas(tags.get('USER', ''), limit, viewer=self.persona)
+        log('***', '    EA Messenger: %s searched for %r -> %s'
+            % (self.persona, tags.get('USER', ''), ', '.join(found) or '(nobody)'))
+        self.send('USCH', 0, {'ID': rid, 'SIZE': str(len(found))})
+        for name in found:
+            self.send('USER', 0, {'ID': rid, 'USER': name,
+                                  'RSRC': tags.get('RSRC', 'CSO')})
+
+    def bd_epgt(self, ident, tags):
+        """`EPGT LRSC ID` -- sent straight after sign-in (0x003375A0), ID=4.
+
+        The reply handler (0x00338B98) takes it only with ID=4 and ident 0; it
+        then clears a pending bit, keeps `ADDR` (255 characters) and sets a
+        flag when `ENAB` is "T".  The pair reads like an address the account
+        can be reached at, and whether that is switched on; nothing here keeps
+        one, so it is always empty and off.  An answer without the ID -- what
+        the catch-all used to send -- left the request pending for ever."""
+        self.send('EPGT', 0, {'ID': tags.get('ID', '4'), 'ADDR': '',
+                              'ENAB': 'F'})
 
     # ---- messages --------------------------------------------------------
 
@@ -3341,7 +3588,7 @@ class BuddyHandler(Handler):
         callback (0x00285CF0) turns into a dialog."""
         if not self.persona:
             return self.refuse('SEND', self.ERR_AUTH, tags, 'not signed in')
-        to = tags.get('USER', '')
+        to = self.user_of(tags)
         target = MESSENGER.get(to) or next(
             (c for p, c in MESSENGER.items() if p.lower() == to.lower()), None)
         if not target:
