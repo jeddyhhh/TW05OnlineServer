@@ -456,6 +456,7 @@ drives it the way the game does:
 python3 tests/tourney_test.py    # date, season, calendar, a round played and reported
 python3 tests/games_test.py      # game adverts, joining, all four modes, wagers and cash
 python3 tests/messenger_test.py  # EA Messenger: search, friend requests, buddies, messages
+python3 tests/address_test.py    # which address each console is given for peer to peer
 python3 tests/webui_test.py      # every page, the patch and cheat files, cash on the site
 ```
 
