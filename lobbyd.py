@@ -1208,6 +1208,22 @@ class Handler(socketserver.BaseRequestHandler):
 
     # ---- handshake -------------------------------------------------------
 
+    def on_tic(self, ident, tags):
+        """'@tic RC4+MD5-V2' -- TW05's first frame on the redirector connection,
+        sent together with `@dir` by 0x003271F8.  It offers to encrypt the
+        lobby session: the name is the cipher suite (RC4, keyed with MD5,
+        version 2), and the reply body goes straight to the session-key
+        handler (0x00334898 posts it as a 'sess'/'keys' event) -- a real
+        server would have answered with key material there.
+
+        TW04 never sent it.  A plain OK carries no keys, so the console keeps
+        the session in plain text, exactly as TW04's always was; every TW05
+        run since first contact has worked that way.  Encrypting would buy
+        nothing here (the password is already sent encrypted in `auth`) and
+        would make the traffic unreadable in the logs, so it is declined on
+        purpose -- this handler only says so instead of logging a miss."""
+        self.send('@tic', ident, {'~~': 'OK'})
+
     def on_dir(self, ident, tags):
         """'@dir'.  A real server answers with a directory of lobby servers;
         we point the client back at ourselves."""

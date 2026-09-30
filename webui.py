@@ -2060,6 +2060,12 @@ try them &mdash; working or not &mdash; please report what happened on
         mine = twrecords.h2h_summary(DB, name)
         figs.append(_figure(mine['rep'], 'Rep'))
         figs.append(_figure(mine['dnf'], 'Did not finish'))
+        # Compliments from the game's FEEDBACK screen: how many players have
+        # said so (each counts once), shown only once somebody has.
+        praise = DB.feedback_for(name)
+        for kind in twdb.PRAISE:
+            if praise.get(kind):
+                figs.append(_figure(praise[kind], twdb.FEEDBACK_KINDS[kind]))
 
         # Where they stand on each stat table, if they qualify for it.
         standing = {}
