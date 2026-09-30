@@ -56,15 +56,19 @@ Things learned about the screen on the way:
 
 - **REP** is the user record's **`RP`** tag. The record parser (0x003299C0) stores it at
   +0x210 and 0x001C6210 reads it for the screen; `RP=501` drew REP 501. The parser also
-  takes `HW US MA LA AT CL LV MD WT WI G X`, not yet placed. The server sends REP as the
-  percentage of head-to-head games the player finished rather than quit
-  (`lobbyd.reputation`), 100 before any game.
+  takes `HW US MA LA AT CL LV MD WT WI G X`, not yet placed.
+  **Since 2026-09-30, REP comes from the game's FEEDBACK screen**
+  (`twrecords.reputation`, notes/tw05-messenger.md). It starts at 100, adds 1 for each
+  compliment (Good attitude, Great session) and takes away 1 for each complaint. Each
+  counts once per giver per kind, and it stops at 0. The rated player is sent `+who` at
+  once. Quitting only counts toward DID NOT FINISH now. It was first sent as the
+  percentage of games finished.
 - **EARNINGS RANK** is `myrnk`'s **`RNKRS` word 39**. TW05's RNKRS is 43 words, 172 bytes
   (decoded by 0x001C2930 into lobby context +0x1F0); the screen reads list 0x26 through
   0x001C6268, which 0x001C6D70 maps to word 39, and draws N/A when it is 0. TW04's was 36
   words with the rank in word 10, so the fork's 144-byte record never reached it.
 
-Both confirmed on the console: JeddyH REP 67 (1 quit in 3 games), EARNINGS RANK 1.
+Both confirmed on the console: JeddyH REP 67 (1 quit in 3 games, under the first rule), EARNINGS RANK 1.
 
 Filled in from the database (`Handler.tw05_stats`), confirmed on JeddyH's screen:
 

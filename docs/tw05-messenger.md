@@ -83,6 +83,8 @@ indicators. The middle one flashes when a friend request is waiting.
   player per kind. The rest are abuse reports carrying their kind
   (`reports.kind`), shown on the operator's reports page. Before this, a
   "Good attitude" landed in the abuse queue.
+- **Feedback drives REP** on MY RESUME: 100 + compliments − complaints, each
+  once per giver per kind, never below 0 (notes/tw05-stats.md).
 
 ## Challenge
 
