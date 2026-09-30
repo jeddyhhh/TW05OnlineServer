@@ -29,9 +29,9 @@ the first and last entry, so the list must stay sorted.
 |---|---|---|
 | 0–3 | purse, u32 | screen |
 | 4–5 | u16 shown as `/ $n` after the headline | screen (unused, 0) |
-| 6 | max attempts | accessor 0x001D6908 (0 shows "0"; meaning unknown) |
+| 6 | max attempts: **drawn only, never enforced**; 100 or more shows N/A, which the server now sends | 0x001D6908, screen |
 | 7 | forced golfer; **42 = none** (shows N/A), 0 = Tiger Woods | 0x001D6930, screen |
-| 8–11 | u32: attributes (bits 0x8000/0x10000), difficulty (bits 0x20000–0x400000) | 0x001D6990, 0x001D6B78 (not tried) |
+| 8–11 | **rules u32**: attributes and difficulty (below) | 0x001D6B78, 0x001D6990, screen |
 | 12–15 | **conditions u32** (below) | accessors + screen |
 | 16–17 | **day**, u16 | lookup 0x001D56D0 |
 | 18 | non-zero appends " (TP)" to the course | 0x001D6960 |
@@ -125,7 +125,21 @@ finished an 18-hole TW05 tournament round against the server yet.
 
 ## Still open
 
-- The calendar icon: every day draws a heart, and TW04's icon byte (15) has no TW05 equivalent yet.
+- The calendar icon: every day drew a heart. **Found 2026-09-30: data byte 24**, a signed byte.
+  The calendar's per-day callback (0x0020AC20, reached through a table) looks the day up,
+  writes its status line and returns `lb 0x38(entry)` via the accessor 0x001D6958; a day with
+  no event returns -1 (no icon). We sent 0 there, and 0 is the heart.
+  - Read off the calendar with `--probe-icons` (September: icon = date − 1; October:
+    date + 30): **56 icons**. 0–29 are TW04's set; 31–55 are new (US flag, ship, turkey,
+    "JULY 4th", TW logo, pie, EA logo, frog, candy cane, gift, maple leaf, French flag, $,
+    sugar skull, bonfire, saltire, Australian flag, padlock, German, Greek and Italian flags,
+    crown, bull, Swedish and Swiss flags); 56 on draw nothing; 30 is unseen. The full table
+    is in `twtourney.py`.
+  - `twtourney.SPECIAL_DAYS` + `MOVABLE_DAYS` (Easter, Thanksgiving) give 48 special days a
+    year, each its own icon; every other day is icon 2 (the ball). `lobbyd.rename_calendar`
+    renames stored upcoming days to match.
+  - The game's calendar builds a month's icons when it opens and doesn't redraw them; and
+    from the last month on offer, L1 doesn't page back (Triangle out and back in instead).
 - A real 18-hole round reported by the game (see above).
 - The TW05 `snap` leaderboards and weekly money lists (empty so far).
 
@@ -145,3 +159,40 @@ JeddyH played the **Greek Isles Invitational** (White tees, Short rough, Slow fa
   - Words 4 (= 1), 9 and 27 (= 0) are still unknown.
 - The string after the struct is the **console's MAC address** (`$00041f82e366`).
 - The money screen before it ("Pre-Round Total $76,000 … Grand Total") is TW05's own online money, earned in single-player modes. None of it is in `trslt`; it's held by the `cusr` money commands (`Lobby_DeductMyOnlineMoney`, `usrrk`?), which aren't answered yet.
+
+## Attributes and difficulty (2026-09-30)
+
+The UPCOMING EVENT screen's **Attributes** and **Difficulty** lines both
+come from the u32 at data 8, and neither was set before. So every event so
+far has shown "All 100's" and "N/A". All of this is confirmed on screen with
+`--probe-layout settings`.
+
+| Setting | Bit → screen | Default (no bit) |
+|---|---|---|
+| Attributes (0x001D6B78) | 0x20000 N/A (own golfer), 0x40000 All 50's, 0x80000 60's, 0x100000 70's, 0x200000 80's, 0x400000 90's | All 100's |
+| Difficulty (0x001D6990) | 0x8000 Default, 0x10000 Tour | N/A |
+
+- **At event start**, the attributes are turned into a rating cap of 0 (none)
+  or 50–100 by 0x001D6FF0.
+- **Tour** calls 0x00170EA0(1), the game's Tour-difficulty flag, which match
+  setup also uses. Default and N/A both leave it off.
+- **Other bits in the word:** bits 7, 8 and 11 only choose the calendar's
+  status line for a day (0x0020AC20 through 0x001D6FE0). Bits 8–10 of the
+  data-12 word are applied at the start (0x001D6A00) but never drawn;
+  they're probably the pins. The server leaves all of these clear.
+
+**How events use them** (`twtourney.CONDITIONS`, `CONDITION_WEIGHTS`,
+`PURSE_MULTIPLIERS`):
+
+- **Attributes** are drawn by weight: All 100's 50%, own golfer 20%,
+  90's 10%, 80's 10%, 70's 5%, 60's 3%, 50's 2%.
+- **Difficulty:** Default 70%, Tour 30%.
+- **Purses:** lower ratings pay more (up to ×1.15 for All 50's), and Tour
+  pays ×1.10.
+- **Stored calendars:** the draw comes after the four course conditions, so
+  those are unchanged. `lobbyd.reprice_calendar` adds the missing settings
+  to stored upcoming events and reprices them. Today's event is left alone.
+- **Confirmed in play, 2026-09-30:** today's event was set to All 50's on a
+  test lobby. Sunday Tiger Woods' default drive dropped from 333 to 274
+  yards. At the first tee the cap at 0x0039F740 read 50, and the Tour flag
+  at 0x0039F73C read 0 (Default). Tour itself hasn't been played yet.

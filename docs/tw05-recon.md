@@ -112,6 +112,17 @@ Other hosts in the ELF:
   quietly if nothing answers.
 - `GOLFVOIP: Connecting to: %s:%d:%d`: voice chat (headset). New in TW05.
 
+**The first frame, `@tic RC4+MD5-V2`** (2026-09-30), is new in TW05. It
+comes on the redirector connection, together with `@dir` (0x003271F8). It
+offers to encrypt the lobby session: RC4 keyed with MD5, version 2. The
+reply body goes straight to the session-key handler (0x00334898 posts it as
+a `sess`/`keys` event).
+
+A plain OK carries no keys, so the session stays in plain text like TW04's,
+and every TW05 run has worked that way. `lobbyd.on_tic` declines it on
+purpose. Encryption would add nothing, since `auth` already encrypts the
+password, and it would make the logs unreadable.
+
 ## Master code (real PS2)
 
 A real console's cheat engine (Open PS2 Loader, Cheat Device) needs a "9"

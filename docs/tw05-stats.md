@@ -30,20 +30,49 @@ TW05's `S` is not TW04's. `twstats05.py` has the details:
 | WAGERS MADE / WON | 87, 88 |
 | MONEY EARNED / LOST | 90, 91 |
 
-`ONLINE RANK` comes from the user record's `R`. The RANK lines and EARNINGS RANK come from the rank requests, not the record.
+`ONLINE RANK` comes from the user record's `R`.
 
-**Not yet right:**
+**Solved 2026-09-30** with `lobbyd --probe-file`, bisecting the fields live:
 
-- DID NOT FINISH showed 92 under the probe, but reads 0 with 92=2 or 92=50.
-- DNF LAST 10 showed 4 under the probe, but reads 1 for 4=2 and 3 for 4=7.
+| Line | Source |
+|---|---|
+| DID NOT FINISH | **field 15 + field 16 + field 61**: the incomplete games of match play, stroke play and the Mini-Game (Battle counts as match) |
+| DNF LAST 10 GAMES | **the 1-bits of field 92**: a 10-bit history of the last ten games, 1 = did not finish (2 drew 1, 50 drew 3, 85 drew 4) |
+| STROKE / MATCH / MINI GAMES RANK | **`cusr CMD=usrrk`**, whose reply is `RANKS`: 12 bytes, binary (`$` hex), three little-endian words in that order. `_GetUserRanksCallback` (0x001C2B40) stores them at lobby context +0x1E0. 0 draws N/A. |
 
-So both are derived from other fields; this needs a debugger look at the draw code. REP drew 0 and isn't placed yet.
+The server fills these from the matches: per-mode quit counts, the last ten games' quits
+as a bitmask (newest in bit 0), and `lobbyd.mode_ranks` (by wins, then fewest losses,
+then most ties; equal records share a rank). Field 4, once taken for DNF LAST 10, is not it.
+
+Things learned about the screen on the way:
+
+- It takes the player's record once per visit; a `+who` sent while it's open shows next time.
+- It refreshes when the game sends `myrnk`, which the game rate-limits to about one a
+  minute or two.
+- The game's own record has Win/Loss/Tie, Rank, Points, Status, Ping, **Comp, Incomp,
+  DNF10**, AvgRnd and Earnings (a debug dump at 0x001C9594).
+
+**REP and EARNINGS RANK, solved the same day.** Neither is in `S`:
+
+- **REP** is the user record's **`RP`** tag. The record parser (0x003299C0) stores it at
+  +0x210 and 0x001C6210 reads it for the screen; `RP=501` drew REP 501. The parser also
+  takes `HW US MA LA AT CL LV MD WT WI G X`, not yet placed. The server sends REP as the
+  percentage of head-to-head games the player finished rather than quit
+  (`lobbyd.reputation`), 100 before any game.
+- **EARNINGS RANK** is `myrnk`'s **`RNKRS` word 39**. TW05's RNKRS is 43 words, 172 bytes
+  (decoded by 0x001C2930 into lobby context +0x1F0); the screen reads list 0x26 through
+  0x001C6268, which 0x001C6D70 maps to word 39, and draws N/A when it is 0. TW04's was 36
+  words with the rank in word 10, so the fork's 144-byte record never reached it.
+
+Both confirmed on the console: JeddyH REP 67 (1 quit in 3 games), EARNINGS RANK 1.
 
 Filled in from the database (`Handler.tw05_stats`), confirmed on JeddyH's screen:
 
 - Stroke 1-0-0, Match 0-1, Mini 0-0-1 (Battle has no line)
 - Points 3, Events 1
-- `--probe-fields 92=50,...` overrides single fields for mapping.
+- `--probe-fields 92=50,...` overrides single fields for mapping; `--probe-file FILE`
+  does the same (plus `ranks`, `rnkrs`, `R`) from a file re-read and re-sent each time
+  MY RESUME opens, so the console never has to reconnect.
 
 ## Online money
 
