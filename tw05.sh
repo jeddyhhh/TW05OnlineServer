@@ -57,6 +57,21 @@ LOBBY_PORT=${LOBBY_PORT:-20200}
 # needed behind NAT, where this machine's own address is not the public one.
 BUDDY_PORT=${BUDDY_PORT-13505}
 BUDDY_ADDR=${BUDDY_ADDR:-}
+# The match relay (twrelay.py), on UDP 3658 -- open it on the firewall.
+# OFF by default: in testing (2026-10-01) the consoles never sent to it.
+#   off   (default) never; consoles always connect to each other directly
+#   same  only for two consoles behind one router that the server
+#         cannot give each other's LAN address (PCSX2 in Sockets mode): their
+#         match goes via this server instead of looping through the router
+#   all   every match goes via this server (no port forward needed at home)
+RELAY=${RELAY:-off}
+# The address consoles send relayed traffic to, if this machine is behind NAT
+# and the address it is reached on is not its public one.
+RELAY_ADDR=${RELAY_ADDR:-}
+# Voice chat in matches.  VOICE=off builds the site's downloads with a patch
+# that never starts it, so a match uses only UDP 3658 and not 6000 as well.
+# Players re-download the patch after a change.
+VOICE=${VOICE:-on}
 # Online cash everyone starts with; the site reads it from the lobby.
 START_CASH=${START_CASH:-10000}
 # The database both share, and the in-game news the admin page edits.
@@ -79,7 +94,8 @@ command_for() {
     case "$1" in
     lobbyd)
         cmd="$PYTHON $HERE/lobbyd.py --port $LOBBY_PORT --db $DB --news $NEWS --quiet"
-        cmd="$cmd --start-cash $START_CASH"
+        cmd="$cmd --start-cash $START_CASH --relay $RELAY"
+        [ -n "$RELAY_ADDR" ] && cmd="$cmd --relay-addr $RELAY_ADDR"
         cmd="$cmd --logfile $LOGS/lobbyd.log --log-max-mb $LOG_MAX_MB --log-keep $LOG_KEEP"
         # lobbyd runs Messenger by default, so "off" has to be said out loud.
         cmd="$cmd --buddy-port ${BUDDY_PORT:-0}"
@@ -92,6 +108,7 @@ command_for() {
         cmd="$cmd --logfile $LOGS/webui.log --log-max-mb $LOG_MAX_MB --log-keep $LOG_KEEP"
         [ -n "$ADVERTISE" ] && cmd="$cmd --advertise $ADVERTISE"
         [ "$SECURE_COOKIE" = 0 ] && cmd="$cmd --no-secure-cookie"
+        [ "$VOICE" = off ] && cmd="$cmd --no-voice"
         echo "$cmd"
         ;;
     *)  echo "" ;;

@@ -145,6 +145,9 @@ The supporting modules, for anyone reading the code:
 | `twstats.py` | the course list |
 | `tagfield.py`, `eacrypt.py` | EA's message encoding and the login password cipher |
 | `twlog.py` | the size-capped log both programs write |
+| `twrelay.py` | the UDP relay for matches whose consoles can't reach each other directly |
+| `tw05patch.py` | the game patch (host names, DNAS, real-PS2 codes), shared by the site and the patcher |
+| `patcher/tw05_patcher.py` | `TW05-MasterServerPatch.exe`: writes the patch into a PCSX2 install for any server |
 | `tw05.sh` | runs and supervises both on Linux (see below) |
 | `docs/` | the research notes: how everything above was worked out |
 | `analysis/` | the ELF analysis helpers those notes were worked out with (they need `capstone` and `pyelftools`; see [analysis/README.md](analysis/README.md)) |
@@ -172,6 +175,9 @@ Settings are at the top of the script, or can be given in the environment:
 |---|---|---|
 | `ADVERTISE` | *(empty)* | the address written into every patch players download; **set it** (see below) |
 | `START_CASH` | `10000` | the online cash every golfer starts with |
+| `RELAY` | `off` | the match relay on UDP 3658, experimental: `same` for two consoles behind one router that can't be given LAN addresses, `all` for every match, `off` never |
+| `RELAY_ADDR` | *(empty)* | the address to give consoles for the relay, if this machine is behind NAT |
+| `VOICE` | `on` | `off` puts a patch in the downloads that never starts voice chat, so matches use only UDP 3658 |
 | `WEB_HOST` | `127.0.0.1` | where the web site listens; keep it local behind a reverse proxy |
 | `WEB_PORT` | `8081` | the web site's port |
 | `WEB_BASE` | `/TW05Online` | the path the site is served under |
@@ -227,7 +233,8 @@ default. Next to a TW04 server, add these two `ProxyPass` lines under its
   (`SECURE_COOKIE=0`) exists only for plain HTTP on a home network.
 
 Only the web site goes behind the proxy. Consoles connect straight to TCP 20200
-and 13505, so open both on your firewall; on Ubuntu:
+and 13505, so open both on your firewall (and UDP 3658 too if you turn on the
+experimental match relay, `RELAY`); on Ubuntu:
 
 ```bash
 sudo ufw allow 20200/tcp
@@ -277,6 +284,16 @@ patch file. In short, in PCSX2:
 4. **Sign in.** Create an account on the web site, then choose PLAY ONLINE on
    the console, and on SELECT EA ACCOUNT pick USE EXISTING EA ACCOUNT and type
    the same account name and password.
+
+**Or let the patcher do step 1.** `patcher/tw05_patcher.py` (built as
+`TW05-MasterServerPatch.exe`) asks for the server's address, finds the PCSX2
+installs beside it, writes the same patch into `cheats`, and turns on Enable
+Cheats for TW05 without touching the game's other settings. A patch that was
+already there is kept as `.pnach.bak`. Build it with:
+
+```bash
+python -m PyInstaller --onefile --console --name TW05-MasterServerPatch --paths . --hidden-import tw05patch patcher/tw05_patcher.py
+```
 
 The patch never modifies the disc image. Deleting the `.pnach` file undoes it.
 
@@ -461,7 +478,8 @@ python3 tests/webui_test.py      # every page, the patch and cheat files, cash o
 ```
 
 Most modules also test themselves: `python3 twrecords.py`, `twstats05.py`,
-`twtourney.py`, `twstats.py`, `twlog.py`, `tagfield.py` and `eacrypt.py`.
+`twtourney.py`, `twrelay.py`, `twstats.py`, `twlog.py`, `tagfield.py` and
+`eacrypt.py`.
 
 ## Troubleshooting
 

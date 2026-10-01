@@ -57,100 +57,28 @@ COOKIE = 'tw05'               # not TW04's, so the two sites can share a host
 ADVERTISE = ''
 LOBBY_PORT = 20200            # compiled into the disc beside the name
 
-# The names TW05 looks up, all of which have to come here.  The lobby is the
-# one that matters; Messenger is the buddy list; the demangler is EA's NAT
-# helper at match start, and its name now belongs to somebody else entirely,
-# so it is pointed here to keep the game from talking to them (a match falls
-# back to connecting directly after about 20 seconds either way).
-#
-# Where those names live in the ELF (vaddr, bytes the slot has, the name).
-# The patch writes this server's address over each one as a dotted quad,
-# which the game takes as it is -- no DNS, so nothing to set in PCSX2
-# (Jed, 2026-09-29: works with the host overrides removed).  The lobby's
-# slot is 16 bytes, room for the longest IPv4 address and its NUL.
-# ps2tw05.ea.com is in the ELF twice: Lobby_Init (0x001C3350) reads the
-# first, the demo/attract path (0x001CC56C) the second.
-HOST_SLOTS = ((0x00361208, 16, 'ps2tw05.ea.com'),
-              (0x00363D38, 16, 'ps2tw05.ea.com'),
-              (0x0035F0F0, 20, 'msgconn.beta.ea.com'),
-              (0x003655D8, 20, 'demangler.ea.com'))
+# The patch itself (host names, DNAS, voice, real-PS2 codes) lives in
+# tw05patch, shared with TW05-MasterServerPatch.exe.  Re-exported here, and
+# wrapped so the downloads follow this site's --no-voice.
+from tw05patch import (HOST_SLOTS, SERIAL, CRC, PNACH_NAME, PNACH,   # noqa: E402,F401
+                       DNAS_PATCH, VOICE_OFF_PATCH, VOICE_OFF_PNACH,
+                       host_writes, host_patches, MASTER_CODE, CHT_NAME,
+                       CHEATDEVICE_NAME, REAL_PS2_TITLE)
+import tw05patch                                                  # noqa: E402
 
-SERIAL, CRC = 'SLUS-21002', '88A808FA'
-PNACH_NAME = '%s_%s.pnach' % (SERIAL, CRC)
-PNACH = """gametitle=Tiger Woods PGA Tour 2005 (USA) [%(serial)s]
-comment=Online revival: master server -> %(ip)s. Downloaded from this server's web site.
-
-// --- DNAS: treat the finished DNAS run as a pass ---
-// 0x001BDDF4 loads the DNAS result (gDNASOutputBlock.iResult); zero is success.
-patch=1,EE,001BDDF4,word,00002021
-
-// --- The master server: EA's host names replaced with %(ip)s ---
-%(hosts)s"""
-
-
-DNAS_PATCH = (0x001BDDF4, 0x00002021)
-
-
-def host_writes(ip):
-    """[(name, [(vaddr, word), ...])]: `ip` over every host name in
-    HOST_SLOTS, NUL-padded to the slot, as little-endian words."""
-    raw = ip.encode('ascii')
-    out = []
-    for vaddr, size, name in HOST_SLOTS:
-        if len(raw) >= size:
-            raise ValueError('%s does not fit in %d bytes' % (ip, size))
-        new = raw.ljust(size, b'\0')
-        out.append((name, [(vaddr + k, int.from_bytes(new[k:k + 4], 'little'))
-                           for k in range(0, size, 4)]))
-    return out
-
-
-def host_patches(ip):
-    """pnach lines writing `ip` over every host name in HOST_SLOTS."""
-    lines = []
-    for name, words in host_writes(ip):
-        lines.append('// %s' % name)
-        lines.extend('patch=1,EE,%08X,word,%08X' % w for w in words)
-    return '\n'.join(lines) + '\n'
-
-
-# The same patch for a real console's cheat engine (Open PS2 Loader's, or
-# Cheat Device), which only runs codes once it has hooked the game.  The
-# hook is the "9" master code: a `jal` the game makes every frame, and the
-# instruction there.  TW04's was its CodeBreaker master code decrypted -- a
-# `jal memcpy` inside libpad's scePadRead.  TW05's CodeBreaker master code is
-# in the v7 encryption, so this one was found the other way round: the same
-# `jal memcpy` in TW05's scePadRead (libpad 2800, 0x00312E58; called from the
-# game's pad update at 0x002D48F4), confirmed in PCSX2's debugger to fire
-# once a frame (2026-09-29).  Every other code is a type-2 32-bit write of
-# exactly what the .pnach writes.  NOT TRIED ON A REAL CONSOLE.
-MASTER_CODE = (0x00312F7C, 0x0C0BBF8A)            # jal 0x002EFE28 (memcpy)
-CHT_NAME = 'SLUS_210.02.cht'                      # OPL looks for <game ID>.cht
-CHEATDEVICE_NAME = 'TW05-CheatDevice.txt'
-REAL_PS2_TITLE = 'Tiger Woods PGA Tour 2005 (NTSC-U)'
+VOICE = True                  # --no-voice
 
 
 def cheat_codes(ip):
-    """(master lines, online lines): a name, then its codes."""
-    master = ['Master Code', '9%07X %08X' % MASTER_CODE]
-    online = ['TW05 Online - UNTESTED (server %s)' % ip,
-              '2%07X %08X' % DNAS_PATCH]
-    online += ['2%07X %08X' % w for _name, words in host_writes(ip)
-               for w in words]
-    return master, online
+    return tw05patch.cheat_codes(ip, VOICE)
 
 
 def build_cht(ip):
-    """Open PS2 Loader's <game ID>.cht (PS2rd format).  Every line that is
-    not 16 hex digits is read as a cheat NAME, so it carries no comments."""
-    master, online = cheat_codes(ip)
-    return '\n'.join(master + [''] + online) + '\n'
+    return tw05patch.build_cht(ip, VOICE)
 
 
 def build_cheatdevice(ip):
-    """Cheat Device's TXT database: the game title in quotes, then cheats."""
-    master, online = cheat_codes(ip)
-    return '\n'.join(['"%s"' % REAL_PS2_TITLE] + master + [''] + online) + '\n'
+    return tw05patch.build_cheatdevice(ip, VOICE)
 
 # Starting cash when lobbyd has not published its --start-cash.
 START_CASH = twrecords.START_CASH
@@ -1572,8 +1500,7 @@ and none is distributed here.</p>
         ip, _port = lobby_endpoint(self.headers.get('Host', ''))
         if not ip:
             return None
-        return (PNACH % {'serial': SERIAL, 'ip': ip,
-                         'hosts': host_patches(ip)}).encode('utf-8')
+        return tw05patch.build_pnach(ip, VOICE).encode('utf-8')
 
     def real_ps2_card(self):
         """Codes for a real console -- clearly marked as never tried."""
@@ -3220,7 +3147,7 @@ class Server(socketserver.ThreadingTCPServer):
 
 def main(argv=None):
     global DB, BASE, TRUST_PROXY, SECURE_COOKIE, ADVERTISE, LOBBY_PORT
-    global REPORTS_KEY, ADMIN_KEY, NEWS_FILE, LOG
+    global REPORTS_KEY, ADMIN_KEY, NEWS_FILE, LOG, VOICE
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--db', default=twdb.DEFAULT_DB)
@@ -3242,6 +3169,10 @@ def main(argv=None):
                          'is not on the same host as this site, or when this '
                          'host cannot resolve its own public name -- otherwise '
                          'the address the request arrived at is used')
+    ap.add_argument('--no-voice', dest='voice', action='store_false',
+                    help='build the downloads with voice chat switched off, so '
+                         'matches use only the game port (UDP 3658) and not '
+                         'voice\'s UDP 6000 as well')
     ap.add_argument('--lobby-port', type=int, default=20200,
                     help='the lobby port to show when lobbyd has not '
                          'published one (default 20200, the port on the disc)')
@@ -3284,6 +3215,9 @@ def main(argv=None):
     SECURE_COOKIE = args.secure_cookie
     ADVERTISE = args.advertise
     LOBBY_PORT = args.lobby_port
+    VOICE = args.voice
+    if not VOICE:
+        say('voice chat is OFF in the downloads (--no-voice)')
     DB = twdb.DB(args.db)
     say('database %s -- %d accounts' % (DB.path, DB.count_accounts()))
     if args.reports_key != 'off':

@@ -39,6 +39,7 @@ import tagfield
 import twdb
 import twlog
 import twrecords
+import twrelay
 import twstats
 import twstats05
 import twtourney
@@ -232,6 +233,42 @@ def same_network(a, b):
     consoles behind the same router, with the server on the far side."""
     seen = REACH.get(a)
     return bool(seen) and seen == REACH.get(b)
+
+
+# The UDP relay (twrelay) for matches whose two consoles cannot reach each
+# other directly; None when it is off or could not bind.
+RELAY = None
+
+
+def needs_relay(a, b):
+    """Whether a match between `a` and `b` goes through the relay.
+
+    Off unless asked for (`--relay`); see notes/tw05-games.md for why.
+    `--relay same`: only two consoles behind one router with no
+    LAN addresses to give each other (PCSX2 in Sockets mode) -- the case that
+    dropped on hole 2.  `--relay all`: every match, which also spares players
+    the UDP 3658 port-forward, at the cost of a detour through the server.
+    `--relay off`: never."""
+    if RELAY is None or ARGS.relay == 'off':
+        return False
+    if ARGS.relay == 'all':
+        return bool(REACH.get(a) and REACH.get(b))
+    return same_network(a, b) and not (lan_address(a) and lan_address(b))
+
+
+def relay_address(persona):
+    """The address `persona`'s console should send its match traffic to: the
+    one it reached this lobby on (as `@dir` and Messenger do), unless
+    `--relay-addr` says otherwise (a server behind NAT)."""
+    if ARGS.relay_addr:
+        return ARGS.relay_addr
+    for h in list(CONNS):
+        if h.persona == persona:
+            try:
+                return dotted_quad(h.request.getsockname()[0])
+            except OSError:
+                return None
+    return None
 
 
 def peer_address(peer, viewer=None):
@@ -626,7 +663,10 @@ def start_session(a, b, params='', game=0):
     # ends up sending to its own public IP and the router has to hairpin it
     # back.  Plenty do not, and the symptom is a match that is agreed in the
     # lobby and then never starts -- with nothing in this log to say why.
-    if same_network(a, b):
+    relayed = needs_relay(a, b)
+    if relayed:
+        RELAY.add(session['auth'], a, REACH[a], b, REACH[b])
+    elif same_network(a, b):
         if lan_address(a) and lan_address(b):
             log('***', '    %s and %s share one network (%s) -- each is given '
                        'the other\'s LAN address (%s, %s)'
@@ -636,19 +676,26 @@ def start_session(a, b, params='', game=0):
                        'router, and at least one (PCSX2 in Sockets mode) has '
                        'no LAN address to give instead, so the peer-to-peer '
                        'leg depends on the router looping it back.  Expect it '
-                       'to drop; run the lobby on their LAN, or use PCAP.'
+                       'to drop; run the lobby on their LAN, use PCAP, or '
+                       'turn the relay on (--relay same).'
                 % (a, b, REACH[a]))
 
     # TW05's 'play' handler (0x001C0F00) reads the players as OPPO0/OPPO1
     # and their addresses as ADDR0/ADDR1, host first, plus the game's PARAMS.
     for me, peer in ((a, b), (b, a)):
-        # Addresses as `me` should dial them (peer_address).
-        both = {'OPPO0': host, 'OPPO1': other,
-                'ADDR0': peer_address(host, me)[0] or '0.0.0.0',
-                'ADDR1': peer_address(other, me)[0] or '0.0.0.0',
-                'PARAMS': session.get('params', ''),
-                'IDENT': str(session.get('game', 0))}
-        addr, port = peer_address(peer, me)
+        # Addresses as `me` should dial them (peer_address).  Relayed, both
+        # are the relay: the console dials whichever it takes as its
+        # opponent's (logme `oppo=`), and the host's own is only reported.
+        if relayed:
+            addr, port = relay_address(me), str(twrelay.PORT)
+            both = {'ADDR0': addr or '0.0.0.0', 'ADDR1': addr or '0.0.0.0'}
+        else:
+            addr, port = peer_address(peer, me)
+            both = {'ADDR0': peer_address(host, me)[0] or '0.0.0.0',
+                    'ADDR1': peer_address(other, me)[0] or '0.0.0.0'}
+        both.update({'OPPO0': host, 'OPPO1': other,
+                     'PARAMS': session.get('params', ''),
+                     'IDENT': str(session.get('game', 0))})
         if not addr:
             log('!!!', '    no endpoint known for %s -- +ses will be useless' % peer)
         push_to(me, '+ses', dict(both, **{
@@ -664,7 +711,8 @@ def start_session(a, b, params='', game=0):
             'WHEN': when,
             'AUTH': session['auth'],
         }))
-        log('***', '    +ses to %s: peer %s at %s:%s' % (me, peer, addr, port))
+        log('***', '    +ses to %s: peer %s at %s:%s%s'
+            % (me, peer, addr, port, ' (the relay)' if relayed else ''))
 
 
 # ---------------------------------------------------------------------------
@@ -694,18 +742,33 @@ GAMES = {}                       # ident -> game
 GAME_SEQ = [0]
 
 
-def game_record(g):
+def game_record(g, viewer=None):
+    """A game advert's record, as `viewer` should see it.
+
+    The ADDRn/LADDRn here are what the consoles of an ADVERTISED match dial
+    -- not `+ses`'s, which arrive after: on the LAN server (2026-10-01), with
+    `+ses` pointing both at the relay, the match connected directly and the
+    relay passed nothing.  So the addresses are worked out for the viewer
+    (peer_address), and when the game's two players go through the relay,
+    each of them is sent the relay's address for both."""
     tags = {'IDENT': str(g['ident']), 'NAME': g['name'], 'HOST': g['host'],
             'PARAMS': g['params'], 'ROOM': str(g['room_id']),
             'CUSTFLAGS': g['custflags'], 'SYSFLAGS': g['sysflags'],
             'COUNT': str(len(g['players'])), 'MINSIZE': g['minsize'],
             'MAXSIZE': g['maxsize'], 'NUMPART': str(len(g['players'])),
             'SEED': str(g['seed'])}
-    for n, who in enumerate(g['players']):
-        addr = peer_address(who)[0] or '0.0.0.0'
+    players = g['players']
+    relay = None
+    if viewer in players and len(players) == 2 and needs_relay(*players):
+        relay = relay_address(viewer)
+    for n, who in enumerate(players):
+        if relay:
+            addr = local = relay
+        else:
+            addr = peer_address(who, viewer)[0] or '0.0.0.0'
+            local = lan_address(who) or addr
         tags.update({'OPID%d' % n: str(n), 'OPPO%d' % n: who,
-                     'ADDR%d' % n: addr,
-                     'LADDR%d' % n: lan_address(who) or addr})
+                     'ADDR%d' % n: addr, 'LADDR%d' % n: local})
     return tags
 
 
@@ -717,13 +780,15 @@ def game_room_id(room):
 def push_game(g, deleted=False):
     """Tell the game's room about it (both list kinds), and its players
     their `+mgm`."""
-    tags = {'IDENT': str(g['ident'])} if deleted else game_record(g)
+    def tags(viewer):
+        return ({'IDENT': str(g['ident'])} if deleted
+                else game_record(g, viewer))
     for who, room in list(WHERE.items()):
         if room == g['room']:
-            push_to(who, '+agm', tags)
-            push_to(who, '+gam', tags)
+            push_to(who, '+agm', tags(who))
+            push_to(who, '+gam', tags(who))
     for who in g['players']:
-        push_to(who, '+mgm', tags)
+        push_to(who, '+mgm', tags(who))
 
 
 def drop_games(persona, why):
@@ -990,6 +1055,8 @@ def publish_live():
 def end_matches(persona, why):
     """`persona` is back in the lobby, so any match they were in is over --
     with a result or without one.  Never fatal."""
+    if RELAY is not None and persona:
+        RELAY.end(persona, why)
     if DB is None or not persona:
         return
     try:
@@ -1483,7 +1550,7 @@ class Handler(socketserver.BaseRequestHandler):
         GAMES[g['ident']] = g
         log('***', '    game %d advertised by %s in %r: %r'
             % (g['ident'], me, room, g['name']))
-        self.send('gcre', ident, dict(game_record(g), **{'~~': 'OK'}))
+        self.send('gcre', ident, dict(game_record(g, me), **{'~~': 'OK'}))
         push_game(g)
         note('room', '%s advertised %s' % (me, g['name']), who=me)
 
@@ -1496,7 +1563,7 @@ class Handler(socketserver.BaseRequestHandler):
                  if g['room'] == room]
         self.send('gsea', ident, {'~~': 'OK', 'COUNT': str(len(found))})
         for g in found:
-            tags = game_record(g)
+            tags = game_record(g, self.persona)
             self.send('+agm', 0, tags)
             self.send('+gam', 0, tags)
 
@@ -1514,14 +1581,14 @@ class Handler(socketserver.BaseRequestHandler):
         if g['pass'] and tags.get('PASS', '') != g['pass']:
             return self.fail('gjoi', 'pass', 'wrong password for %r' % name)
         if me in g['players']:
-            return self.send('gjoi', ident, dict(game_record(g), **{'~~': 'OK'}))
+            return self.send('gjoi', ident, dict(game_record(g, me), **{'~~': 'OK'}))
         if len(g['players']) >= int(g['maxsize'] or 2):
             return self.fail('gjoi', 'full', '%r is full' % name)
         drop_games(me, 'joined another game')
         g['players'].append(me)
         log('***', '    %s joined game %d (%r) hosted by %s'
             % (me, g['ident'], name, g['host']))
-        self.send('gjoi', ident, dict(game_record(g), **{'~~': 'OK'}))
+        self.send('gjoi', ident, dict(game_record(g, me), **{'~~': 'OK'}))
         push_game(g)
         if len(g['players']) >= int(g['minsize'] or 2):
             host, guest = g['players'][0], g['players'][1]
@@ -3840,6 +3907,18 @@ def main(argv=None):
                          'backend every PS2 is 192.0.2.100, so the reported '
                          'address is useless and lobbyd substitutes the host '
                          'it was reached on; use this to override that.')
+    ap.add_argument('--relay', choices=('same', 'all', 'off'), default='off',
+                    help='relay head-to-head traffic through this server on '
+                         'UDP %d (off by default; not proven with the game -- '
+                         'see notes/tw05-games.md): "same" only for two consoles '
+                         'behind one router that cannot be given LAN '
+                         'addresses, "all" for every match (no port forward '
+                         'needed, but everything detours via the server), '
+                         '"off" never (the default)' % twrelay.PORT)
+    ap.add_argument('--relay-addr', default='',
+                    help='the address consoles should send relayed traffic '
+                         'to, when this machine is behind NAT and the address '
+                         'it was reached on is not its public one')
     ap.add_argument('--ping', type=float, default=20.0,
                     help='seconds between `~png` keepalives; the client drops '
                          'the session after 60 s of silence, so keep this well '
@@ -3965,6 +4044,16 @@ def main(argv=None):
     # the `if` above, so a server run with --ping 0 had no events at all.
     ensure_season()
     threading.Thread(target=calendar_tick, daemon=True).start()
+
+    global RELAY
+    if ARGS.relay != 'off':
+        try:
+            RELAY = twrelay.Relay(ARGS.host, twrelay.PORT, log)
+            log('***', 'relay listening on %s:%d/udp (%s) -- open it on the '
+                       'firewall' % (ARGS.host, RELAY.port, ARGS.relay))
+        except OSError as exc:
+            log('!!!', 'relay OFF: could not bind UDP %d (%s) -- is PCSX2 '
+                       'using it on this machine?' % (twrelay.PORT, exc))
 
     if ARGS.buddy_port:
         buddy = Server((ARGS.host, ARGS.buddy_port), BuddyHandler)
