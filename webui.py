@@ -756,8 +756,9 @@ def lobby_endpoint(host_header=''):
 
 
 # Where the server's source lives -- in every page's footer, so anyone can run
-# their own.  TW05's server grew out of this project.
-PROJECT_URL = 'https://github.com/jeddyhhh/TW04OnlineServer'
+# their own, and where real-PS2 reports go (issues).  It grew out of TW04's.
+PROJECT_URL = 'https://github.com/jeddyhhh/TW05OnlineServer'
+TW04_URL = 'https://github.com/jeddyhhh/TW04OnlineServer'
 
 
 def pnach_name():
@@ -899,14 +900,15 @@ def page(title, body, message=None, kind='err', stats=True, refresh=0,
 %s</div></header>%s
 <main class="wrap">%s%s</main>
 <footer><div class="wrap">%s
-<p class="foot" style="margin-top:1.4rem">This server grew out of TW04 Online
-Server, which is free and open source &mdash; <strong>you can run your
-own</strong>: <a href="%s">%s</a></p>
+<p class="foot" style="margin-top:1.4rem">This server is free and open
+source &mdash; <strong>you can run your own</strong>: <a href="%s">%s</a>.
+It grew out of <a href="%s">TW04 Online Server</a>.</p>
 <p class="foot" style="margin-top:.4rem">Tiger Woods PGA Tour 2005 is a
 trademark of its owners. This is a fan-run server and is not affiliated with
 them.</p></div></footer>
 </body></html>""" % (meta, html.escape(title), CSS, nav, strip, banner, body,
-                     board, PROJECT_URL, PROJECT_URL.split('://', 1)[1])
+                     board, PROJECT_URL, PROJECT_URL.split('://', 1)[1],
+                     TW04_URL)
             ).encode('utf-8')
 
 

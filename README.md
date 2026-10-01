@@ -24,7 +24,10 @@ It brings back the game's online menus:
 - **EA Messenger:** player search, friend requests, buddy lists, who's online, and messages between players.
 - **In-game news:** your own text, plus a digest the server writes from
   recent results.
-- **Report abuse:** reports are stored with the chat that led up to them.
+- **Feedback:** the game's Feedback screen. Compliments (good attitude, great
+  session) raise a player's REP on MY RESUME and show on their web page;
+  complaints lower it and go to the operator's private reports page with the
+  chat that led up to them.
 
 Alongside the lobby runs a **web site**, styled after the game's own menus.
 Players create their account and download the game patch there. It also shows
