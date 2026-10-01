@@ -370,6 +370,27 @@ python3 twdb.py --set-password ACCOUNT PASS
 python3 twdb.py --disable ACCOUNT        # a ban; --enable undoes it
 ```
 
+**Starting afresh.** To wipe the server's play but keep everyone's account
+and personas, stop the server and run:
+
+```bash
+python3 twdb.py --reset-stats
+```
+
+It keeps accounts, personas, their uploaded golfers, buddy lists and the
+abuse reports, and wipes matches, tournament rounds, the live board's
+history, everyone's cash back to the starting balance, and Feedback (REP back to 100). The tournament calendar goes too, and a new one is drawn when the
+lobby next starts. It refuses to run while the lobby is up, saves a full copy
+of the database first (`before-reset-DATE.db` beside it), and asks you to type
+`RESET` (`--yes` skips that).
+
+**Just a new calendar.** `python3 twdb.py --reset-calendar` (server stopped)
+clears the tournament events from tomorrow on and picks a random calendar
+generation, so the lobby deals a new schedule when it starts. Today, past
+events and any day somebody has already played stay, so prize money and
+leaderboards are unchanged, and nothing else is touched. Same safeguards:
+a copy first (`before-calendar-DATE.db`) and `RESET` to confirm.
+
 Players normally manage their own accounts and personas on the web site. An
 account can hold up to four personas.
 
@@ -489,6 +510,7 @@ python3 tests/tourney_test.py    # date, season, calendar, a round played and re
 python3 tests/games_test.py      # game adverts, joining, all four modes, wagers and cash
 python3 tests/messenger_test.py  # EA Messenger: search, friend requests, buddies, messages
 python3 tests/address_test.py    # which address each console is given for peer to peer
+python3 tests/reset_test.py      # --reset-stats keeps the accounts and wipes the rest
 python3 tests/webui_test.py      # every page, the patch and cheat files, cash on the site
 ```
 
