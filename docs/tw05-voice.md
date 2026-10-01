@@ -39,3 +39,27 @@
 - how the EE side (DirtySock VoIP, around 0x339670) frames it on UDP 6000.
 
 A live capture of port 6000 during a match with headsets would answer all three.
+
+## Switching voice off (2026-10-01)
+
+At match load, 0x001AEBE0 (`beqz v0, 0x001AEBF8`) skips `Voip_Init` and
+`Voip_Connect` while a flag bit (0x20000 of 0x0034A960) is clear. Writing
+`10000005` (`b`, always) there skips them every time.
+
+That's the same state the game's own exits leave:
+
+- `Voip_Init` returns early when it isn't broadband, or when the IRX
+  modules fail to load.
+- `Voip_Connect` does nothing unless `Voip_Init` set bit 0x80000.
+
+So a match runs without voice: no headset drivers are loaded, and nothing is
+sent on UDP 6000.
+
+**Why:** two PCSX2 PCs behind one router, playing through the online server,
+dropped on hole 2. Every hole change brought ICMP "port closed" errors on
+UDP 6000 (notes/tw05-games.md).
+
+**On the server:** `webui.py --no-voice` (`VOICE=off` in tw05.sh) adds this
+line to the site's `.pnach`, `.cht` and Cheat Device downloads.
+
+**Tried 2026-10-01:** with the patch, PCSX2 never bound UDP 6000 and the match played. It did NOT fix the hole-2 drop for two PCs behind one router. The router loop-back was the cause, and the fix is the relay (notes/tw05-games.md).

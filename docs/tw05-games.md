@@ -198,3 +198,122 @@ Match play in which winning a hole lets you remove a club from your opponent's b
 - `games_test.py` checks all four modes as seen live.
 
 **Kinds so far:** `stroke`, `match`, `mini` (course None), `battle`, `tourney`. Whether Battle and the Mini-Game should get their own records or leaderboards is a site decision for later.
+
+## Two consoles behind one router, internet server (2026-10-01)
+
+Two PCSX2 PCs on one LAN played through the internet server. The match
+connected and a hole was played, then it dropped on the second hole.
+
+**What the crashing PC's PCSX2 log showed:**
+
+- At every hole change, it got an ICMP "port closed" on UDP 6000 (voice,
+  opened whether or not a headset is plugged in). PCSX2 then tore down that
+  socket and rebound it.
+- About 40–70 s into hole 2, the match dropped. The game reset its IOP to go
+  back to the menus.
+- `ohci_die: DMA error` was printed once, during that reset. It's a side
+  effect of the reset, not the cause: the other drops had the same reset and
+  no USB error.
+
+**The cause:** both consoles came from one public IP, so each was sent that IP
+as its opponent's address. The router then had to loop the traffic back in,
+with both consoles on the same fixed ports (3658 for the game, 6000 for
+voice), and it couldn't keep them apart.
+
+**The fix, in `lobbyd.peer_address`, is per viewer:**
+
+- The default address is the one the lobby connection comes from (`REACH`):
+  the public IP over the internet, or the LAN address with a LAN server.
+- Two consoles from the same address (`same_network`) are given each other's
+  own LAN address from `addr` (`lan_address`), when there is one.
+- The `+ses` ADDR/ADDR0/ADDR1 are worked out for each recipient.
+- Game adverts carry `LADDR` as the LAN address.
+
+**Also fixed:** before this, a real PS2's own `addr` report (its private
+192.168.x address) was what the server sent its opponent, which would have
+broken real PS2s on different networks.
+
+**What this can't fix:** PCSX2 in Sockets mode reports 192.0.2.100 for every
+instance, so it has no LAN address to give. Two such PCs behind one router
+still need the lobby on their LAN (or PCSX2 in PCAP mode).
+
+`tests/address_test.py` covers the cases.
+
+### Voice off didn't fix it; the relay does (2026-10-01)
+
+**Voice off:** with voice switched off (`001AEBE0`, notes/tw05-voice.md),
+nothing touched UDP 6000, but the match still dropped on hole 2.
+
+**What the logs showed:**
+
+- The live server log (`FromOnlineServer/lobbyd.log`) had Messenger quiet
+  apart from keep-alives. The console then said a clean `DISC`.
+- The other console's `rank` came in with `DISC=1` after 1 hole.
+- So the direct connection between the two consoles died. PCSX2 in Sockets
+  mode can't have its address set: the fields are locked, and every instance
+  is 192.0.2.100.
+
+**The relay:** `twrelay.py`, run inside lobbyd, listens on **UDP 3658**. The
+game's peer-to-peer port is a constant both ends (0x001D1628: `0xE4A` as the
+local and remote port). Each console dials the address it holds as its
+opponent's: logme `oppo=`, `ADDR0`/`ADDR1` in `+ses`.
+
+**How it's used:**
+
+- When a match needs it, `start_session` sends **both** consoles the server's
+  own address (the one each reached the lobby on, or `--relay-addr`) in `ADDR`,
+  `ADDR0` and `ADDR1`.
+- The relay passes each packet to the other console, unchanged:
+  - different source IPs are told apart by IP;
+  - two consoles on one IP are told apart by the source port their router
+    gave each. It follows a console whose port changes.
+- A relayed match ends when either player is back in the lobby
+  (`end_matches`), after 120 s of silence, or after 4 h.
+
+**When it's used** (`--relay`, tw05.sh `RELAY`):
+
+- `same` (default): two consoles from one address with no LAN addresses to
+  give each other.
+- `all`: every match.
+- `off`: never.
+
+It needs UDP 3658 open on the server's firewall.
+
+**Tests:** `twrelay.py` tests itself: one address told apart by port, two
+apart by address, a moved port followed, strangers and ended matches
+dropped. `tests/games_test.py` starts a match between two clients on
+127.0.0.1 and checks that both get the relay's address and that UDP passes
+through it both ways.
+
+**First LAN run (2026-10-01, `RELAY=all` on the LAN server, two PCs):**
+
+- The relay registered the match, and `+ses` sent both consoles to
+  192.168.1.88:3658.
+- The match was then played, and the relay passed **0 packets**.
+- An **advertised** match takes its addresses from the game record (`+mgm`,
+  `+agm`, `+gam`, and the `gjoi` reply: ADDRn/LADDRn), which arrives before
+  `+ses`. That record still carried the real LAN addresses, so the consoles
+  connected directly.
+- `game_record(g, viewer)` now works the addresses out per viewer. When the
+  game's two players go through the relay, each is sent the relay's address
+  for both.
+- `tests/games_test.py` checks the `+mgm` too.
+
+**Online server, after that fix (2026-10-01).** Every address the server
+sent pointed at the relay: the `gjoi` reply, `+mgm` and `+ses`. Two matches
+then played 4 and 5 holes with the relay passing **0 packets**.
+
+- tcpdump on the server proved UDP 3658 arrives from the players' public IP.
+- So the consoles never sent to the relay. They found each other some other
+  way, and that route wasn't identified. Suspects:
+  - the room list's `+usr A=` (the public IP);
+  - a local-network broadcast on UDP 9999, which both consoles open in the
+    lobby.
+- The hole-2 drops of the night before didn't come back either way. Jed
+  thinks they may have been a passing router problem.
+
+**Left there by Jed: the relay is kept but OFF by default** (`--relay off`,
+`RELAY=off`). Before relying on it, find where an advertised match really
+takes the opponent's address from. It can't be tried on one PC: each PCSX2
+holds UDP 3658 on its own adapter, and Windows' strong-host rule blocks the
+alternatives. The first run is the LAN server with `RELAY=all` and two PCs.
