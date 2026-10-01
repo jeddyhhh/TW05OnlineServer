@@ -111,6 +111,18 @@ def main():
         proc.terminate()
         proc.wait(10)
         shutil.rmtree(tmp, ignore_errors=True)
+    # --no-voice: one more patch line in each download, the voice branch.
+    import webui
+    webui.VOICE = False
+    try:
+        assert '201AEBE0 10000005' in webui.build_cht('127.0.0.1'), 'cht voice'
+        assert '201AEBE0 10000005' in webui.build_cheatdevice('127.0.0.1')
+        import tw05patch
+        text = tw05patch.build_pnach('127.0.0.1', voice=False)
+        assert 'patch=1,EE,001AEBE0,word,10000005' in text, 'pnach voice'
+        assert 'patch=1,EE,001AEBE0' not in tw05patch.build_pnach('127.0.0.1')
+    finally:
+        webui.VOICE = True
     print('ok: every page loads; the patch carries the server\'s address over\n'
           '    every host name; cash shows on the leaderboard and account page')
 

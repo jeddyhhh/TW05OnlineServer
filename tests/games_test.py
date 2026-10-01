@@ -48,7 +48,7 @@ def main():
         [sys.executable, os.path.join(SERVER, 'lobbyd.py'), '--host',
          '127.0.0.1', '--port', str(T.PORT), '--logfile', '', '--ping', '0',
          '--backup-keep', '0', '--db', os.path.join(tmp, 'tw05.db'),
-         '--buddy-port', '0', '--open'],
+         '--buddy-port', '0', '--open', '--relay', 'same'],
         stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     fails = []
     try:
@@ -89,10 +89,49 @@ def main():
             m = until(s, '+mgm', lambda t: t.get('COUNT') == '2')
             if (m.get('OPPO0'), m.get('OPPO1')) != ('alice', 'bob'):
                 fails.append("%s's +mgm should list alice then bob: %r" % (who, m))
+            # An ADVERTISED match dials the game record's addresses, not
+            # +ses's (LAN server, 2026-10-01): they must be the relay's too.
+            got = [m.get(k) for k in ('ADDR0', 'ADDR1', 'LADDR0', 'LADDR1')]
+            if got != ['127.0.0.1'] * 4:
+                fails.append("%s's +mgm should send both to the relay: %r"
+                             % (who, got))
             ses = until(s, '+ses')
             if (ses.get('OPPO0'), ses.get('OPPO1')) != ('alice', 'bob') or \
                     ses.get('PARAMS') != PARAMS or not ses.get('AUTH'):
                 fails.append("%s's +ses is wrong: %r" % (who, ses))
+            # Both come from 127.0.0.1 -- one address, like two consoles in
+            # one house -- and neither has a LAN address to give, so both
+            # are sent to the relay (twrelay), at the address they reached
+            # the lobby on.
+            if (ses.get('ADDR'), ses.get('ADDR0'), ses.get('ADDR1')) != \
+                    ('127.0.0.1',) * 3:
+                fails.append("%s should be sent to the relay: %r"
+                             % (who, {k: ses.get(k) for k in
+                                      ('ADDR', 'ADDR0', 'ADDR1')}))
+
+        # The two consoles' match traffic, through the relay on UDP 3658:
+        # each gets what the other sent, untouched.
+        ua, ub = (socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                  for _ in range(2))
+        for u in (ua, ub):
+            u.bind(('127.0.0.1', 0))
+            u.settimeout(2)
+        relay = ('127.0.0.1', 3658)
+        ua.sendto(b'alice hello', relay)
+        time.sleep(0.2)
+        ub.sendto(b'bob hello', relay)
+        try:
+            got_a = ua.recvfrom(2048)[0]
+            ua.sendto(b'alice again', relay)
+            got_b = ub.recvfrom(2048)[0]
+        except socket.timeout:
+            got_a = got_b = None
+        print('relay:  alice got %r, bob got %r' % (got_a, got_b))
+        if (got_a, got_b) != (b'bob hello', b'alice again'):
+            fails.append('the relay should pass traffic both ways, got %r / %r'
+                         % (got_a, got_b))
+        for u in (ua, ub):
+            u.close()
 
         # A $2,500 wager: alice (host, 70) beats bob (74).  Both consoles
         # report; the wager moves once.  Then bob spends $1,000 and tries to
@@ -175,7 +214,8 @@ def main():
         print('FAIL', f)
     if fails:
         sys.exit(1)
-    print('ok: advertise, search, join and start a match; a withdrawn advert\n'
+    print('ok: advertise, search, join and start a match (through the relay,\n'
+          '    as two consoles on one address); a withdrawn advert\n'
           '    is deleted from the room')
 
 
