@@ -151,6 +151,7 @@ The supporting modules, for anyone reading the code:
 | `twrelay.py` | the UDP relay for matches whose consoles can't reach each other directly |
 | `tw05patch.py` | the game patch (host names, DNAS, real-PS2 codes), shared by the site and the patcher |
 | `patcher/tw05_patcher.py` | `TW05-MasterServerPatch.exe`: writes the patch into a PCSX2 install for any server |
+| `tw05_local.py` | `TW05-LocalServer.exe`: the lobby, Messenger and web site in one window, for a home network |
 | `tw05.sh` | runs and supervises both on Linux (see below) |
 | `docs/` | the research notes: how everything above was worked out |
 | `analysis/` | the ELF analysis helpers those notes were worked out with (they need `capstone` and `pyelftools`; see [analysis/README.md](analysis/README.md)) |
@@ -254,6 +255,17 @@ WEB_HOST=0.0.0.0 SECURE_COOKIE=0 ADVERTISE=192.168.1.x ./tw05.sh start
 ```
 
 and browse to `http://192.168.1.x:8081/TW05Online/`.
+
+**On Windows, `TW05-LocalServer.exe` does all of that in one window.**
+Built from `tw05_local.py`, it runs the lobby, Messenger and the web site
+together, finds this PC's LAN address, hands out a patch that points at it,
+lets the console create accounts on first sign-in, and keeps its `data\` and
+`logs\` beside the exe. Its ports are TW05's own (20200, 13505, 8081), so it
+can run beside TW04-LocalServer. Build it with:
+
+```bash
+python -m PyInstaller --onefile --console --name TW05-LocalServer --paths . tw05_local.py
+```
 
 ### Before it faces the internet
 
